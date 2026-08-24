@@ -1,0 +1,57 @@
+{
+  "name": "@moreflow/forms",
+  "version": "0.1.0",
+  "description": "Headless browser helpers for Moreflow public forms.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moreflow-io/forms.git"
+  },
+  "homepage": "https://github.com/moreflow-io/forms#readme",
+  "bugs": {
+    "url": "https://github.com/moreflow-io/forms/issues"
+  },
+  "keywords": [
+    "moreflow",
+    "forms",
+    "headless",
+    "idempotency",
+    "phone-number",
+    "browser"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --external:libphonenumber-js --format=esm --minify --outfile=dist/index.js && tsc --declaration --emitDeclarationOnly --outDir dist --skipLibCheck",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../.. packages/forms/src/index.test.ts",
+    "prepublishOnly": "bun run test && bun run build"
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.12.7"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
