@@ -1,11 +1,11 @@
 {
   "name": "@moreflow/forms",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Headless browser helpers for Moreflow public forms.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/moreflow-io/forms.git"
+    "url": "git+https://github.com/moreflow-io/forms.git"
   },
   "homepage": "https://github.com/moreflow-io/forms#readme",
   "bugs": {
@@ -26,7 +26,8 @@
   "sideEffects": false,
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -38,12 +39,13 @@
     }
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --external:libphonenumber-js --format=esm --minify --outfile=dist/index.js && tsc --declaration --emitDeclarationOnly --outDir dist --skipLibCheck",
+    "build": "esbuild src/index.ts --bundle --external:libphonenumber-js --external:@moreflow/tracking --format=esm --minify --outfile=dist/index.js && esbuild src/index.ts --bundle --format=iife --global-name=MoreflowForms --target=es2019 --minify --outfile=dist/browser.js && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../.. packages/forms/src/index.test.ts",
+    "test": "vitest run",
     "prepublishOnly": "bun run test && bun run build"
   },
   "dependencies": {
+    "@moreflow/tracking": "^0.1.0",
     "libphonenumber-js": "^1.12.7"
   },
   "devDependencies": {

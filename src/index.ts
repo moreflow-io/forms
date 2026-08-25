@@ -1,60 +1,33 @@
 import { type CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
+import {
+  captureAcquisitionTracking,
+  createMemoryStorage,
+  guardStorage,
+  resolveStorage,
+  trackingKeys,
+  type AcquisitionTracking,
+  type StorageLike
+} from '@moreflow/tracking';
+
+export {
+  captureAcquisitionTracking,
+  createMemoryStorage,
+  guardStorage,
+  resolveStorage,
+  trackingKeys
+};
+export type {
+  AcquisitionTracking,
+  StorageLike,
+  TrackingCaptureOptions,
+  TrackingKey
+} from '@moreflow/tracking';
+/** @deprecated Use AcquisitionTracking from @moreflow/tracking for new shared integrations. */
+export type PublicFormTracking = AcquisitionTracking;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue | undefined };
 export type JsonObject = { [key: string]: JsonValue | undefined };
-
-export interface StorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-const defaultStorageKey = 'moreflow:acquisition:v1';
-
-function createDefaultStorage(): StorageLike {
-  try {
-    if (typeof globalThis.sessionStorage !== 'undefined') {
-      const browserStorage = globalThis.sessionStorage;
-      const fallback = createMemoryStorage();
-      return {
-        getItem: (key) => {
-          try {
-            return browserStorage.getItem(key);
-          } catch {
-            return fallback.getItem(key);
-          }
-        },
-        setItem: (key, value) => {
-          try {
-            browserStorage.setItem(key, value);
-          } catch {
-            fallback.setItem(key, value);
-          }
-        },
-        removeItem: (key) => {
-          try {
-            browserStorage.removeItem(key);
-          } catch {
-            fallback.removeItem(key);
-          }
-        }
-      };
-    }
-  } catch {
-    // Access to browser storage can throw when third-party storage is blocked.
-  }
-  return createMemoryStorage();
-}
-
-export function createMemoryStorage(): StorageLike {
-  const values = new Map<string, string>();
-  return {
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
-    removeItem: (key) => values.delete(key)
-  };
-}
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -94,11 +67,10 @@ export async function fingerprintPayload(value: unknown): Promise<string> {
   const cryptoApi = globalThis.crypto;
   if (cryptoApi?.subtle) {
     try {
-      const digest = await cryptoApi.subtle.digest(
-        'SHA-256',
-        new TextEncoder().encode(serialized)
+      const digest = await cryptoApi.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
+        ''
       );
-      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
     } catch {
       // Some browser contexts expose crypto.subtle but reject digest operations.
     }
@@ -122,10 +94,14 @@ export function createIdempotencyKey(): string {
 export interface IdempotencyAttempt {
   key: string;
   payloadHash: string;
+  requestBody?: string;
 }
 
 export interface IdempotencyStore {
-  prepare(payload: unknown): Promise<IdempotencyAttempt>;
+  prepare(
+    payload: unknown,
+    createRequestBody?: (key: string) => string
+  ): Promise<IdempotencyAttempt>;
   read(): IdempotencyAttempt | null;
   clear(): void;
 }
@@ -137,8 +113,9 @@ function parseAttempt(value: string | null): IdempotencyAttempt | null {
     if (!parsed || typeof parsed !== 'object') return null;
     const key = Reflect.get(parsed, 'key');
     const payloadHash = Reflect.get(parsed, 'payloadHash');
+    const requestBody = Reflect.get(parsed, 'requestBody');
     return typeof key === 'string' && key.length > 0 && typeof payloadHash === 'string'
-      ? { key, payloadHash }
+      ? { key, payloadHash, ...(typeof requestBody === 'string' ? { requestBody } : {}) }
       : null;
   } catch {
     return null;
@@ -149,17 +126,27 @@ export function createIdempotencyStore(options: {
   storage?: StorageLike | undefined;
   storageKey: string;
 }): IdempotencyStore {
-  const storage = options.storage ?? createDefaultStorage();
+  const storage = resolveStorage(options.storage);
   let current = parseAttempt(storage.getItem(options.storageKey));
 
   return {
-    async prepare(payload) {
+    async prepare(payload, createRequestBody) {
       const payloadHash = await fingerprintPayload(payload);
-      if (current?.payloadHash === payloadHash) return current;
+      if (
+        current?.payloadHash === payloadHash &&
+        (!createRequestBody || current.requestBody !== undefined)
+      ) {
+        return current;
+      }
 
-      current = { key: createIdempotencyKey(), payloadHash };
-      storage.setItem(options.storageKey, JSON.stringify(current));
-      return current;
+      // Keep the key when only the stored body is missing (records written by
+      // older versions), so a pending server-side attempt can still be replayed.
+      const key = current?.payloadHash === payloadHash ? current.key : createIdempotencyKey();
+      const next: IdempotencyAttempt = { key, payloadHash };
+      if (createRequestBody) next.requestBody = createRequestBody(key);
+      current = next;
+      storage.setItem(options.storageKey, JSON.stringify(next));
+      return next;
     },
     read() {
       current = parseAttempt(storage.getItem(options.storageKey));
@@ -170,111 +157,6 @@ export function createIdempotencyStore(options: {
       storage.removeItem(options.storageKey);
     }
   };
-}
-
-export const trackingKeys = [
-  'utm_source',
-  'utm_medium',
-  'utm_campaign',
-  'utm_term',
-  'utm_content',
-  'utm_campaignid',
-  'gad_campaignid',
-  'gclid',
-  'gbraid',
-  'wbraid',
-  'gad_source',
-  'fbclid',
-  'fbp',
-  'fbc',
-  'ttclid',
-  'ttp',
-  'page_url',
-  'referrer',
-  'user_agent'
-] as const;
-
-export type TrackingKey = (typeof trackingKeys)[number];
-export type PublicFormTracking = Partial<Record<TrackingKey, string>>;
-
-export interface TrackingCaptureOptions {
-  location?: { href?: string; search?: string } | undefined;
-  cookie?: string | undefined;
-  referrer?: string | undefined;
-  userAgent?: string | undefined;
-  now?: number | undefined;
-  storage?: StorageLike | undefined;
-  persistenceKey?: string | undefined;
-}
-
-function readCookie(cookie: string, name: string): string | undefined {
-  for (const pair of cookie.split(';')) {
-    const separator = pair.indexOf('=');
-    if (separator < 0 || pair.slice(0, separator).trim() !== name) continue;
-    const value = pair.slice(separator + 1).trim();
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function readPersistedTracking(storage: StorageLike, key: string): PublicFormTracking {
-  try {
-    const parsed: unknown = JSON.parse(storage.getItem(key) ?? 'null');
-    if (!parsed || typeof parsed !== 'object') return {};
-    const result: PublicFormTracking = {};
-    for (const trackingKey of trackingKeys) {
-      const value = Reflect.get(parsed, trackingKey);
-      if (typeof value === 'string' && value.length > 0) result[trackingKey] = value;
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-export function captureAcquisitionTracking(
-  options: TrackingCaptureOptions = {}
-): PublicFormTracking {
-  const pageLocation =
-    options.location ??
-    (typeof globalThis.location === 'undefined' ? undefined : globalThis.location);
-  const cookie =
-    options.cookie ??
-    (typeof globalThis.document === 'undefined' ? '' : globalThis.document.cookie);
-  const storage = options.storage ?? createDefaultStorage();
-  const persistenceKey = options.persistenceKey ?? defaultStorageKey;
-  const current: PublicFormTracking = {};
-  const search = pageLocation?.search ?? '';
-
-  try {
-    const params = new URL(pageLocation?.href ?? search, 'https://moreflow.invalid').searchParams;
-    for (const trackingKey of trackingKeys) {
-      if (trackingKey === 'page_url' || trackingKey === 'referrer' || trackingKey === 'user_agent') continue;
-      const value = params.get(trackingKey);
-      if (value) current[trackingKey] = value;
-    }
-  } catch {
-    // A malformed location should not prevent a form from being submitted.
-  }
-
-  const fbp = readCookie(cookie, '_fbp');
-  const fbc = readCookie(cookie, '_fbc');
-  if (fbp) current.fbp = fbp;
-  if (fbc) current.fbc = fbc;
-  if (!current.fbc && current.fbclid) {
-    current.fbc = `fb.1.${options.now ?? Date.now()}.${current.fbclid}`;
-  }
-  if (pageLocation?.href) current.page_url = pageLocation.href;
-  if (options.referrer) current.referrer = options.referrer;
-  if (options.userAgent) current.user_agent = options.userAgent;
-
-  const tracking = { ...readPersistedTracking(storage, persistenceKey), ...current };
-  storage.setItem(persistenceKey, JSON.stringify(tracking));
-  return Object.freeze(tracking);
 }
 
 export const DEFAULT_PHONE_COUNTRY: CountryCode = 'DE';
@@ -295,10 +177,12 @@ export function normalizePhoneNumber(
   const trimmed = raw?.trim() ?? '';
   if (!trimmed || trimmed === '+') return { status: 'empty' };
 
-  const parsed = parsePhoneNumberFromString(
-    trimmed,
-    options.defaultCountry ?? DEFAULT_PHONE_COUNTRY
-  );
+  // extract: false rejects phone numbers embedded in surrounding prose; only
+  // an input that is entirely one phone number (plus formatting) is valid.
+  const parsed = parsePhoneNumberFromString(trimmed, {
+    defaultCountry: options.defaultCountry ?? DEFAULT_PHONE_COUNTRY,
+    extract: false
+  });
   if (!parsed?.isValid()) return { status: 'invalid', input: trimmed };
   return { status: 'valid', e164: parsed.number };
 }
@@ -349,10 +233,15 @@ export interface SubmitWithRetryOptions {
   input: PublicFormSubmissionInput;
   tracking?: PublicFormTracking | undefined;
   baseUrl?: string | undefined;
+  /** Sends `Authorization: Bearer <token>` with every submission attempt. */
+  token?: string | undefined;
+  /** Additional request headers sent with every submission attempt. */
+  headers?: Record<string, string> | undefined;
   fetchImpl?: typeof fetch | undefined;
   storage?: StorageLike | undefined;
   maxAttempts?: number | undefined;
   retryDelayMs?: number | undefined;
+  maxRetryDelayMs?: number | undefined;
   sleep?: ((milliseconds: number) => Promise<void>) | undefined;
   signal?: AbortSignal | undefined;
 }
@@ -379,20 +268,36 @@ async function readResponseBody(response: Response): Promise<unknown> {
 }
 
 function errorCode(body: unknown): string | undefined {
-  if (!isRecord(body) || !isRecord(body.error) || typeof body.error.code !== 'string') return undefined;
+  if (!isRecord(body) || !isRecord(body.error) || typeof body.error.code !== 'string')
+    return undefined;
   return body.error.code;
 }
 
-function retryDelay(response: Response, attempt: number, baseDelay: number): number {
+function retryDelay(
+  response: Response,
+  attempt: number,
+  baseDelay: number,
+  maxDelay: number
+): number {
   const retryAfterHeader = response.headers.get('Retry-After');
   const retryAfter = Number(retryAfterHeader);
-  return retryAfterHeader !== null && Number.isFinite(retryAfter) && retryAfter >= 0
-    ? retryAfter * 1000
-    : baseDelay * 2 ** attempt;
+  const delay =
+    retryAfterHeader !== null && Number.isFinite(retryAfter) && retryAfter >= 0
+      ? retryAfter * 1000
+      : baseDelay * 2 ** attempt;
+  return Math.min(delay, maxDelay);
 }
 
 function retryableStatus(status: number): boolean {
   return status === 425 || status === 429 || status >= 500;
+}
+
+function submissionHeaders(options: SubmitWithRetryOptions, idempotencyKey: string): Headers {
+  const headers = new Headers(options.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('Idempotency-Key', idempotencyKey);
+  if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
+  return headers;
 }
 
 const defaultSleep = (milliseconds: number) =>
@@ -405,45 +310,50 @@ export async function submitWithRetry<T = unknown>(
 
   const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
   const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+  const maxRetryDelayMs = Math.max(retryDelayMs, options.maxRetryDelayMs ?? 30_000);
   const sleep = options.sleep ?? defaultSleep;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
   if (!fetchImpl) throw new Error('A fetch implementation is required to submit a Moreflow form.');
 
   const { tracking: inputTracking, ...inputWithoutTracking } = options.input;
   const tracking = Object.freeze({
-    ...(options.tracking ?? inputTracking ?? captureAcquisitionTracking({ storage: options.storage }))
+    ...(options.tracking ??
+      inputTracking ??
+      captureAcquisitionTracking({ storage: options.storage }))
   });
+  // Everything except tracking participates in the fingerprint: a changed
+  // consent, spam, or formEntryId is a materially different submission and
+  // must not replay under the previous idempotency key.
   const fingerprint = {
     formId: options.formId,
-    data: options.input.data,
-    fieldMatching: options.input.fieldMatching
+    ...inputWithoutTracking
   };
   const store = createIdempotencyStore({
     storage: options.storage,
     storageKey: `moreflow:idempotency:${options.formId}`
   });
-  const attempt = await store.prepare(fingerprint);
-  const body = JSON.stringify({
-    ...inputWithoutTracking,
-    tracking,
-    idempotencyKey: attempt.key
-  });
+  // The serialized body is persisted with the attempt so a later call with the
+  // same business payload replays the exact same bytes (including the tracking
+  // snapshot captured when the attempt was first created).
+  const attempt = await store.prepare(fingerprint, (key) =>
+    JSON.stringify({ ...inputWithoutTracking, tracking, idempotencyKey: key })
+  );
+  const body =
+    attempt.requestBody ??
+    JSON.stringify({ ...inputWithoutTracking, tracking, idempotencyKey: attempt.key });
   const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/api/v1/forms/${encodeURIComponent(options.formId)}/submissions`;
 
   for (let retry = 0; retry < maxAttempts; retry += 1) {
     try {
       const response = await fetchImpl(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': attempt.key
-        },
+        headers: submissionHeaders(options, attempt.key),
         body,
         ...(options.signal ? { signal: options.signal } : {})
       });
       const shouldRetry = retryableStatus(response.status) && retry < maxAttempts - 1;
       if (shouldRetry) {
-        await sleep(retryDelay(response, retry, retryDelayMs));
+        await sleep(retryDelay(response, retry, retryDelayMs, maxRetryDelayMs));
         continue;
       }
 
@@ -475,7 +385,7 @@ export async function submitWithRetry<T = unknown>(
           cause: error
         });
       }
-      await sleep(retryDelayMs * 2 ** retry);
+      await sleep(Math.min(retryDelayMs * 2 ** retry, maxRetryDelayMs));
     }
   }
 
