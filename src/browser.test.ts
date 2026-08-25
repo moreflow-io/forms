@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 type BrowserForms = Pick<
   typeof import('./index'),
-  'captureAcquisitionTracking' | 'normalizePhoneNumber' | 'submitWithRetry'
+  | 'captureAcquisitionTracking'
+  | 'checkPhoneVerification'
+  | 'normalizePhoneNumber'
+  | 'sendPhoneVerification'
+  | 'submitWithRetry'
 >;
 
 const browserBundle = readFileSync(new URL('../dist/browser.js', import.meta.url), 'utf8');
@@ -81,5 +85,34 @@ describe('@moreflow/forms browser build', () => {
 
     expect(authorization).toBe('Bearer mfo_browser-token');
     expect(result.data).toEqual({ record: { id: 'browser-submission' } });
+
+    const challenge = await forms.sendPhoneVerification({
+      formId: 'browser-form',
+      phoneNumber: '0170 1234567',
+      baseUrl: 'https://api.example.test',
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ success: true, challengeId: 'browser-challenge' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+    });
+    expect(challenge).toMatchObject({
+      challengeId: 'browser-challenge',
+      phoneNumber: '+491701234567'
+    });
+
+    const verification = await forms.checkPhoneVerification({
+      formId: 'browser-form',
+      phoneNumber: '+491701234567',
+      code: '123456',
+      challengeId: 'browser-challenge',
+      baseUrl: 'https://api.example.test',
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ success: true, verified: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+    });
+    expect(verification).toEqual({ verified: true, phoneNumber: '+491701234567' });
   });
 });

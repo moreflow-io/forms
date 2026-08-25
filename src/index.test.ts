@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   captureAcquisitionTracking,
+  checkPhoneVerification,
   createIdempotencyStore,
   createMemoryStorage,
   fingerprintPayload,
   MoreflowFormError,
   normalizePhoneNumber,
   normalizePhoneToE164,
+  sendPhoneVerification,
   submitWithRetry
 } from './index';
 import type { AcquisitionTracking, PublicFormTracking, TrackingCaptureOptions } from './index';
@@ -414,5 +416,128 @@ describe('@moreflow/forms', () => {
     ).rejects.toBeInstanceOf(MoreflowFormError);
 
     expect(keys[0]).not.toBe(keys[1]);
+  });
+});
+
+describe('phone verification helpers', () => {
+  it('starts verification with a PUT carrying the normalized E.164 number', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ success: true, challengeId: 'challenge-1', expiresAt: '2026-01-01T00:10:00Z' })
+    );
+
+    const challenge = await sendPhoneVerification({
+      formId: 'form-1',
+      phoneNumber: '0170 1234567',
+      baseUrl: 'https://api.example.test/',
+      fetchImpl
+    });
+
+    expect(challenge).toEqual({
+      challengeId: 'challenge-1',
+      phoneNumber: '+491701234567',
+      expiresAt: '2026-01-01T00:10:00Z'
+    });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.example.test/api/v1/forms/form-1/phone-verification');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body as string)).toEqual({ phoneNumber: '+491701234567' });
+    expect(new Headers(init.headers).get('content-type')).toBe('application/json');
+  });
+
+  it('rejects an invalid phone number before making any request', async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      sendPhoneVerification({ formId: 'form-1', phoneNumber: 'not a phone', fetchImpl })
+    ).rejects.toMatchObject({ name: 'MoreflowFormError', code: 'INVALID_PHONE_NUMBER' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server failure code and marks rate limits retryable', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        { code: 'RATE_LIMITED', message: 'Too many verification attempts.' },
+        { status: 429 }
+      )
+    );
+
+    await expect(
+      sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567', fetchImpl })
+    ).rejects.toMatchObject({
+      name: 'MoreflowFormError',
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryable: true,
+      message: 'Too many verification attempts.'
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails when the server responds without a challenge id', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ success: true }));
+
+    await expect(
+      sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567', fetchImpl })
+    ).rejects.toMatchObject({ name: 'MoreflowFormError', retryable: false });
+  });
+
+  it('checks a code with a POST and resolves with the verified number', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ success: true, verified: true }));
+
+    const result = await checkPhoneVerification({
+      formId: 'form-1',
+      phoneNumber: '0170 1234567',
+      code: ' 123456 ',
+      challengeId: 'challenge-1',
+      token: 'secret-token',
+      fetchImpl
+    });
+
+    expect(result).toEqual({ verified: true, phoneNumber: '+491701234567' });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/v1/forms/form-1/phone-verification');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      phoneNumber: '+491701234567',
+      code: '123456',
+      challengeId: 'challenge-1'
+    });
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer secret-token');
+  });
+
+  it('propagates an invalid code failure without retrying', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        { code: 'INVALID_VERIFICATION_CODE', message: 'Phone verification code is invalid.' },
+        { status: 400 }
+      )
+    );
+
+    await expect(
+      checkPhoneVerification({
+        formId: 'form-1',
+        phoneNumber: '+491701234567',
+        code: '000000',
+        challengeId: 'challenge-1',
+        fetchImpl
+      })
+    ).rejects.toMatchObject({
+      name: 'MoreflowFormError',
+      code: 'INVALID_VERIFICATION_CODE',
+      status: 400,
+      retryable: false
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('wraps network failures as retryable errors without resending the SMS', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network down');
+    });
+
+    await expect(
+      sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567', fetchImpl })
+    ).rejects.toMatchObject({ name: 'MoreflowFormError', retryable: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

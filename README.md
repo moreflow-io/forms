@@ -59,6 +59,36 @@ The helper posts to `{baseUrl}/api/v1/forms/{formId}/submissions` and sends both
 
 `normalizePhoneNumber` parses with `DEFAULT_PHONE_COUNTRY` (`'DE'`) when the input has no international prefix; pass `{ defaultCountry }` to change it. The whole input must be a single phone number — numbers embedded inside prose are rejected as `invalid`.
 
+## Phone verification
+
+When a form's phone field has verification enabled (`verifyPhone` on the published component), verify the number before submitting:
+
+```ts
+import { checkPhoneVerification, sendPhoneVerification } from '@moreflow/forms';
+
+const challenge = await sendPhoneVerification({
+  formId: '00000000-0000-4000-8000-000000000001',
+  phoneNumber: '0170 1234567', // normalized to +491701234567 before sending
+  baseUrl: 'https://api.moreflow.io'
+});
+
+// The visitor receives an SMS code; collect it, then:
+const { phoneNumber } = await checkPhoneVerification({
+  formId: '00000000-0000-4000-8000-000000000001',
+  phoneNumber: challenge.phoneNumber,
+  code: enteredCode,
+  challengeId: challenge.challengeId,
+  baseUrl: 'https://api.moreflow.io'
+});
+// Submit with the verified E.164 `phoneNumber` in the form data.
+```
+
+The helpers call the public `PUT`/`POST /api/v1/forms/{formId}/phone-verification` endpoints (no token needed; the endpoints are rate limited). `baseUrl` defaults to `''` — the same same-origin-proxy assumption as `submitWithRetry` — and `token`, `headers`, `fetchImpl`, `signal`, and `defaultCountry` work the same way. Both helpers normalize the input to E.164 first and reject invalid numbers locally as `MoreflowFormError` with code `INVALID_PHONE_NUMBER`, without contacting the server.
+
+Failures are `MoreflowFormError` with the server's navigational code: `INVALID_VERIFICATION_CODE` means let the visitor retype the code; `VERIFICATION_PROOF_EXPIRED` and `VERIFICATION_PROOF_REPLAYED` mean start a new challenge with `sendPhoneVerification`; a 429 sets `retryable` with the usual `Retry-After` semantics. Neither helper retries on its own — every send is a real SMS — so offer an explicit "resend code" action instead of resending automatically. A challenge expires after roughly ten minutes and can be used once.
+
+Verification is enforced by the embed flow, not by the submission endpoint: run it before `submitWithRetry` and submit the verified number returned by `checkPhoneVerification`.
+
 ## Issues and contributing
 
 Bug reports and feature requests are welcome in [this repository's issue tracker](https://github.com/moreflow-io/forms/issues). Development happens in the private Moreflow monorepo alongside the server contract this package mirrors; each released version is synced here, so the published source always matches the npm release.
