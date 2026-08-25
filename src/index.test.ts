@@ -422,7 +422,11 @@ describe('@moreflow/forms', () => {
 describe('phone verification helpers', () => {
   it('starts verification with a PUT carrying the normalized E.164 number', async () => {
     const fetchImpl = vi.fn(async () =>
-      Response.json({ success: true, challengeId: 'challenge-1', expiresAt: '2026-01-01T00:10:00Z' })
+      Response.json({
+        success: true,
+        challengeId: 'challenge-1',
+        expiresAt: '2026-01-01T00:10:00Z'
+      })
     );
 
     const challenge = await sendPhoneVerification({

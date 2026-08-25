@@ -6,9 +6,14 @@ type BrowserForms = Pick<
   typeof import('./index'),
   | 'captureAcquisitionTracking'
   | 'checkPhoneVerification'
+  | 'describePhoneInput'
+  | 'getPublicForm'
   | 'normalizePhoneNumber'
+  | 'phoneVerificationRequired'
+  | 'resolveFormMessage'
   | 'sendPhoneVerification'
   | 'submitWithRetry'
+  | 'validateFormValues'
 >;
 
 const browserBundle = readFileSync(new URL('../dist/browser.js', import.meta.url), 'utf8');
@@ -114,5 +119,44 @@ describe('@moreflow/forms browser build', () => {
         })
     });
     expect(verification).toEqual({ verified: true, phoneNumber: '+491701234567' });
+
+    const definition = await forms.getPublicForm({
+      formId: 'browser-form',
+      baseUrl: 'https://api.example.test',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            record: { id: 'browser-form', data: { name: 'Browser form' } },
+            version: {
+              formId: 'browser-form',
+              settings: {},
+              pages: [
+                {
+                  id: 'page-1',
+                  components: [
+                    {
+                      id: 'phone',
+                      type: 'phone_number',
+                      label: 'forms.defaults.phone_number.label',
+                      isRequired: true,
+                      verifyPhone: true
+                    }
+                  ]
+                }
+              ]
+            }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+    });
+    expect(forms.phoneVerificationRequired(definition)).toBe(true);
+    expect(forms.validateFormValues(definition, { phone: '123' })).toMatchObject([
+      { componentId: 'phone', code: 'INVALID_PHONE_NUMBER' }
+    ]);
+    expect(forms.resolveFormMessage('forms.defaults.phone_number.label')).toBe('Telefonnummer');
+    expect(forms.describePhoneInput('+49 170 1234567')).toMatchObject({
+      country: 'DE',
+      nationalNumber: '1701234567'
+    });
   });
 });

@@ -1,4 +1,3 @@
-import { type CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import {
   captureAcquisitionTracking,
   createMemoryStorage,
@@ -8,6 +7,16 @@ import {
   type AcquisitionTracking,
   type StorageLike
 } from '@moreflow/tracking';
+import type { CountryCode } from 'libphonenumber-js';
+import {
+  MoreflowFormError,
+  readResponseBody,
+  retryableStatus,
+  serverErrorCode,
+  serverErrorMessage
+} from './error';
+import { isRecord, type JsonObject, type JsonValue } from './json';
+import { normalizePhoneNumber } from './phone';
 
 export {
   captureAcquisitionTracking,
@@ -25,9 +34,55 @@ export type {
 /** @deprecated Use AcquisitionTracking from @moreflow/tracking for new shared integrations. */
 export type PublicFormTracking = AcquisitionTracking;
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue | undefined };
-export type JsonObject = { [key: string]: JsonValue | undefined };
+export type { JsonObject, JsonPrimitive, JsonValue } from './json';
+export { formErrorMessage, MoreflowFormError, serverErrorCode, serverErrorMessage } from './error';
+export {
+  composePhoneNumber,
+  countryCallingCode,
+  DEFAULT_PHONE_COUNTRY,
+  describePhoneInput,
+  normalizePhoneNumber,
+  normalizePhoneToE164
+} from './phone';
+export type { NormalizedPhoneNumber, NormalizePhoneNumberOptions, PhoneInputParts } from './phone';
+export {
+  CONSENT_COMPONENT_TYPES,
+  formInputComponents,
+  getPublicForm,
+  normalizePublicFormDefinition,
+  partitionFormPages,
+  PHONE_COMPONENT_TYPES,
+  phoneVerificationComponents,
+  phoneVerificationRequired,
+  PRESENTATIONAL_COMPONENT_TYPES
+} from './definition';
+export type {
+  GetPublicFormOptions,
+  PartitionedFormPages,
+  PublicFormComponent,
+  PublicFormDefinition,
+  PublicFormFieldMatch,
+  PublicFormOption,
+  PublicFormPage,
+  PublicFormRegularPage,
+  PublicFormThankYouItem,
+  PublicFormThankYouPage
+} from './definition';
+export {
+  prepareSubmissionData,
+  validateComponentValue,
+  validateFormPage,
+  validateFormValues
+} from './validation';
+export type { FormValidationCode, FormValidationIssue, FormValidationOptions } from './validation';
+export {
+  FORM_MESSAGE_LANGUAGES,
+  formMessageCatalogs,
+  formMessageId,
+  isFormMessageKey,
+  resolveFormMessage
+} from './messages';
+export type { FormMessageLanguage, ResolveFormMessageOptions } from './messages';
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -159,42 +214,6 @@ export function createIdempotencyStore(options: {
   };
 }
 
-export const DEFAULT_PHONE_COUNTRY: CountryCode = 'DE';
-
-export type NormalizePhoneNumberOptions = {
-  defaultCountry?: CountryCode | undefined;
-};
-
-export type NormalizedPhoneNumber =
-  | { status: 'empty' }
-  | { status: 'valid'; e164: string }
-  | { status: 'invalid'; input: string };
-
-export function normalizePhoneNumber(
-  raw: string | null | undefined,
-  options: NormalizePhoneNumberOptions = {}
-): NormalizedPhoneNumber {
-  const trimmed = raw?.trim() ?? '';
-  if (!trimmed || trimmed === '+') return { status: 'empty' };
-
-  // extract: false rejects phone numbers embedded in surrounding prose; only
-  // an input that is entirely one phone number (plus formatting) is valid.
-  const parsed = parsePhoneNumberFromString(trimmed, {
-    defaultCountry: options.defaultCountry ?? DEFAULT_PHONE_COUNTRY,
-    extract: false
-  });
-  if (!parsed?.isValid()) return { status: 'invalid', input: trimmed };
-  return { status: 'valid', e164: parsed.number };
-}
-
-export function normalizePhoneToE164(
-  raw: string | null | undefined,
-  options: NormalizePhoneNumberOptions = {}
-): string | null {
-  const result = normalizePhoneNumber(raw, options);
-  return result.status === 'valid' ? result.e164 : null;
-}
-
 export interface PublicFormSubmissionInput {
   data: JsonObject;
   fieldMatching?: JsonValue[] | undefined;
@@ -203,29 +222,6 @@ export interface PublicFormSubmissionInput {
   consent?: JsonObject | undefined;
   spam?: JsonObject | undefined;
   formEntryId?: string | undefined;
-}
-
-export class MoreflowFormError extends Error {
-  readonly status: number | undefined;
-  readonly code: string | undefined;
-  readonly retryable: boolean;
-  readonly responseBody: unknown;
-
-  constructor(options: {
-    message: string;
-    status?: number | undefined;
-    code?: string | undefined;
-    retryable?: boolean | undefined;
-    responseBody?: unknown;
-    cause?: unknown;
-  }) {
-    super(options.message, { cause: options.cause });
-    this.name = 'MoreflowFormError';
-    this.status = options.status;
-    this.code = options.code;
-    this.retryable = options.retryable ?? false;
-    this.responseBody = options.responseBody;
-  }
 }
 
 export interface SubmitWithRetryOptions {
@@ -253,26 +249,6 @@ export interface SubmitWithRetryResult<T = unknown> {
   replayed: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-async function readResponseBody(response: Response): Promise<unknown> {
-  const text = await response.clone().text();
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function errorCode(body: unknown): string | undefined {
-  if (!isRecord(body) || !isRecord(body.error) || typeof body.error.code !== 'string')
-    return undefined;
-  return body.error.code;
-}
-
 function retryDelay(
   response: Response,
   attempt: number,
@@ -286,10 +262,6 @@ function retryDelay(
       ? retryAfter * 1000
       : baseDelay * 2 ** attempt;
   return Math.min(delay, maxDelay);
-}
-
-function retryableStatus(status: number): boolean {
-  return status === 425 || status === 429 || status >= 500;
 }
 
 function submissionHeaders(options: SubmitWithRetryOptions, idempotencyKey: string): Headers {
@@ -369,9 +341,11 @@ export async function submitWithRetry<T = unknown>(
       }
 
       throw new MoreflowFormError({
-        message: `Moreflow form submission failed with HTTP ${response.status}.`,
+        message:
+          serverErrorMessage(responseBody) ??
+          `Moreflow form submission failed with HTTP ${response.status}.`,
         status: response.status,
-        code: errorCode(responseBody),
+        code: serverErrorCode(responseBody),
         retryable: retryableStatus(response.status),
         responseBody
       });
@@ -424,19 +398,6 @@ export interface CheckPhoneVerificationOptions extends PhoneVerificationRequestO
 export interface PhoneVerificationResult {
   verified: true;
   phoneNumber: string;
-}
-
-function phoneVerificationErrorCode(body: unknown): string | undefined {
-  if (isRecord(body) && typeof body.code === 'string') return body.code;
-  return errorCode(body);
-}
-
-function phoneVerificationErrorMessage(body: unknown, fallback: string): string {
-  if (isRecord(body)) {
-    if (typeof body.message === 'string' && body.message) return body.message;
-    if (typeof body.error === 'string' && body.error) return body.error;
-  }
-  return fallback;
 }
 
 function normalizedVerificationPhone(options: PhoneVerificationRequestOptions): string {
@@ -493,12 +454,10 @@ async function phoneVerificationRequest(
   const responseBody = await readResponseBody(response);
   if (!response.ok) {
     throw new MoreflowFormError({
-      message: phoneVerificationErrorMessage(
-        responseBody,
-        `${failureMessage} with HTTP ${response.status}.`
-      ),
+      message:
+        serverErrorMessage(responseBody) ?? `${failureMessage} with HTTP ${response.status}.`,
       status: response.status,
-      code: phoneVerificationErrorCode(responseBody),
+      code: serverErrorCode(responseBody),
       retryable: retryableStatus(response.status),
       responseBody
     });
@@ -524,7 +483,8 @@ export async function sendPhoneVerification(
     { phoneNumber },
     'Moreflow phone verification could not be started'
   );
-  const challengeId = isRecord(body) && typeof body.challengeId === 'string' ? body.challengeId : '';
+  const challengeId =
+    isRecord(body) && typeof body.challengeId === 'string' ? body.challengeId : '';
   if (!challengeId) {
     throw new MoreflowFormError({
       message: 'Moreflow phone verification did not return a challenge id.',
