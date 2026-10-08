@@ -2,6 +2,17 @@
 
 All notable changes to `@moreflow/forms` are documented in this file.
 
+## 0.6.0
+
+- Document stable form-scoped image URLs returned by the public API for custom embeds.
+- Export PublicFormAccountId and use it for PublicFormDefinition.accountId so account IDs retain their semantic type in TypeScript consumers.
+- Rebuild the browser, ESM, and declaration bundles with the current package tooling.
+
+## 0.5.0
+
+- Add optional `mountTurnstile` browser mounting with reset and destroy controls, and expose public Turnstile configuration in form definitions.
+- Expose the form honeypot field and retain spam inputs in idempotent submission payloads.
+
 ## 0.4.0
 
 - Add `getPublicForm` and `normalizePublicFormDefinition`: load a published form (`GET /api/v1/forms/{formId}`) as one canonical, typed `PublicFormDefinition`. The normalizer absorbs every historical response shape — the top-level `version`, the legacy `record.data.config.current_version` copy, snake_case `field_matching`, string options, the `required`/`isRequired` duality — and prefers the candidate whose thank-you page still carries its content props. Load failures throw `MoreflowFormError` with the server's navigational code (`FORM_NOT_FOUND`, `FORM_RETIRED`, `FORM_UNPUBLISHED`, `INVALID_FORM_DEFINITION`).

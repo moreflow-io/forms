@@ -70,10 +70,34 @@ export interface PublicFormFieldMatch {
   clientField: string;
 }
 
+export interface PublicFormTurnstileProtection {
+  /** A public site key. The server-side secret is never part of a definition. */
+  siteKey: string;
+  mode: 'off' | 'flag' | 'require';
+}
+
+export interface PublicFormSpamProtection {
+  turnstile: PublicFormTurnstileProtection;
+}
+
+/**
+ * Standalone SDK projection of Moreflow's canonical AccountId brand.
+ * Keep its structure compatible with types/domain/ids.ts without importing
+ * private monorepo source into the published package.
+ */
+export type PublicFormAccountId = string & {
+  readonly __tableName: 'accounts';
+  readonly __domainId?: 'AccountId' | undefined;
+};
+
 export interface PublicFormDefinition {
   formId: string;
-  accountId?: string | undefined;
+  accountId?: PublicFormAccountId | undefined;
   name?: string | undefined;
+  /** Render an off-screen text input with this name and submit its value as `input.spam.honeypot`. */
+  honeypotField: string;
+  /** Discovery configuration for optional Turnstile mounting in a custom embed. */
+  spamProtection: PublicFormSpamProtection;
   versionId?: string | undefined;
   versionNumber?: number | undefined;
   publishedAt?: string | undefined;
@@ -219,6 +243,18 @@ function hasThankYouContentProps(candidate: Record<string, unknown>): boolean {
   );
 }
 
+function spamProtectionFrom(value: unknown): PublicFormSpamProtection {
+  const source = isRecord(value) ? value : {};
+  const turnstile = isRecord(source.turnstile) ? source.turnstile : {};
+  const mode = stringValue(turnstile.mode);
+  return {
+    turnstile: {
+      siteKey: stringValue(turnstile.siteKey) ?? '',
+      mode: mode === 'flag' || mode === 'require' ? mode : 'off'
+    }
+  };
+}
+
 /**
  * Normalizes any shape the public form endpoint has historically returned into
  * one canonical {@link PublicFormDefinition}: the top-level `version`, the
@@ -275,11 +311,15 @@ export function normalizePublicFormDefinition(
   }
 
   const versionNumber = typeof selected.version === 'number' ? selected.version : undefined;
-
+  // The public API response is an external payload boundary for the account ID brand.
+  const accountId = (stringValue(selected.accountId) ??
+    stringValue(record?.accountId)) as PublicFormAccountId | undefined;
   return {
     formId,
-    accountId: stringValue(selected.accountId) ?? stringValue(record?.accountId),
+    accountId,
     name: stringValue(recordData?.name) ?? stringValue(selected.name),
+    honeypotField: stringValue(root.honeypotField) ?? 'website',
+    spamProtection: spamProtectionFrom(root.spamProtection),
     versionId: stringValue(selected.id) === formId ? undefined : stringValue(selected.id),
     versionNumber,
     publishedAt: stringValue(selected.publishedAt),

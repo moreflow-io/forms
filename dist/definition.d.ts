@@ -54,10 +54,31 @@ export interface PublicFormFieldMatch {
     formFieldId: string;
     clientField: string;
 }
+export interface PublicFormTurnstileProtection {
+    /** A public site key. The server-side secret is never part of a definition. */
+    siteKey: string;
+    mode: 'off' | 'flag' | 'require';
+}
+export interface PublicFormSpamProtection {
+    turnstile: PublicFormTurnstileProtection;
+}
+/**
+ * Standalone SDK projection of Moreflow's canonical AccountId brand.
+ * Keep its structure compatible with types/domain/ids.ts without importing
+ * private monorepo source into the published package.
+ */
+export type PublicFormAccountId = string & {
+    readonly __tableName: 'accounts';
+    readonly __domainId?: 'AccountId' | undefined;
+};
 export interface PublicFormDefinition {
     formId: string;
-    accountId?: string | undefined;
+    accountId?: PublicFormAccountId | undefined;
     name?: string | undefined;
+    /** Render an off-screen text input with this name and submit its value as `input.spam.honeypot`. */
+    honeypotField: string;
+    /** Discovery configuration for optional Turnstile mounting in a custom embed. */
+    spamProtection: PublicFormSpamProtection;
     versionId?: string | undefined;
     versionNumber?: number | undefined;
     publishedAt?: string | undefined;

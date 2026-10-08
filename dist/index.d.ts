@@ -10,7 +10,9 @@ export { formErrorMessage, MoreflowFormError, serverErrorCode, serverErrorMessag
 export { composePhoneNumber, countryCallingCode, DEFAULT_PHONE_COUNTRY, describePhoneInput, normalizePhoneNumber, normalizePhoneToE164 } from './phone';
 export type { NormalizedPhoneNumber, NormalizePhoneNumberOptions, PhoneInputParts } from './phone';
 export { CONSENT_COMPONENT_TYPES, formInputComponents, getPublicForm, normalizePublicFormDefinition, partitionFormPages, PHONE_COMPONENT_TYPES, phoneVerificationComponents, phoneVerificationRequired, PRESENTATIONAL_COMPONENT_TYPES } from './definition';
-export type { GetPublicFormOptions, PartitionedFormPages, PublicFormComponent, PublicFormDefinition, PublicFormFieldMatch, PublicFormOption, PublicFormPage, PublicFormRegularPage, PublicFormThankYouItem, PublicFormThankYouPage } from './definition';
+export type { GetPublicFormOptions, PartitionedFormPages, PublicFormAccountId, PublicFormComponent, PublicFormDefinition, PublicFormFieldMatch, PublicFormOption, PublicFormPage, PublicFormRegularPage, PublicFormSpamProtection, PublicFormThankYouItem, PublicFormThankYouPage, PublicFormTurnstileProtection } from './definition';
+export { mountTurnstile } from './turnstile';
+export type { MountedTurnstile, TurnstileMountOptions } from './turnstile';
 export { prepareSubmissionData, validateComponentValue, validateFormPage, validateFormValues } from './validation';
 export type { FormValidationCode, FormValidationIssue, FormValidationOptions } from './validation';
 export { FORM_MESSAGE_LANGUAGES, formMessageCatalogs, formMessageId, isFormMessageKey, resolveFormMessage } from './messages';
