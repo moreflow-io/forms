@@ -9,8 +9,10 @@ export type { JsonObject, JsonPrimitive, JsonValue } from './json';
 export { formErrorMessage, MoreflowFormError, serverErrorCode, serverErrorMessage } from './error';
 export { composePhoneNumber, countryCallingCode, DEFAULT_PHONE_COUNTRY, describePhoneInput, normalizePhoneNumber, normalizePhoneToE164 } from './phone';
 export type { NormalizedPhoneNumber, NormalizePhoneNumberOptions, PhoneInputParts } from './phone';
-export { CONSENT_COMPONENT_TYPES, formInputComponents, getPublicForm, normalizePublicFormDefinition, partitionFormPages, PHONE_COMPONENT_TYPES, phoneVerificationComponents, phoneVerificationRequired, PRESENTATIONAL_COMPONENT_TYPES } from './definition';
-export type { GetPublicFormOptions, PartitionedFormPages, PublicFormComponent, PublicFormDefinition, PublicFormFieldMatch, PublicFormOption, PublicFormPage, PublicFormRegularPage, PublicFormThankYouItem, PublicFormThankYouPage } from './definition';
+export { CONSENT_COMPONENT_TYPES, formInputComponents, getPublicForm, isComponentVisibleToVisitors, normalizePublicFormDefinition, partitionFormPages, PHONE_COMPONENT_TYPES, phoneVerificationComponents, phoneVerificationRequired, PRESENTATIONAL_COMPONENT_TYPES } from './definition';
+export type { GetPublicFormOptions, PartitionedFormPages, PublicFormAccountId, PublicFormComponent, PublicFormDefinition, PublicFormFieldMatch, PublicFormOption, PublicFormPage, PublicFormRegularPage, PublicFormSpamProtection, PublicFormThankYouItem, PublicFormThankYouPage, PublicFormTurnstileProtection } from './definition';
+export { mountTurnstile } from './turnstile';
+export type { MountedTurnstile, TurnstileMountOptions } from './turnstile';
 export { prepareSubmissionData, validateComponentValue, validateFormPage, validateFormValues } from './validation';
 export type { FormValidationCode, FormValidationIssue, FormValidationOptions } from './validation';
 export { FORM_MESSAGE_LANGUAGES, formMessageCatalogs, formMessageId, isFormMessageKey, resolveFormMessage } from './messages';
@@ -94,7 +96,7 @@ export interface PhoneVerificationResult {
 }
 /**
  * Starts phone verification for a form whose phone field requires it
- * (`PUT /api/v1/forms/{formId}/phone-verification`). The server texts a code to
+ * (`PUT /v1/forms/{formId}/phone-verification`). The server texts a code to
  * the number and returns a challenge id for {@link checkPhoneVerification}.
  *
  * Each call sends a real SMS, so the helper never retries by itself; inspect
@@ -102,7 +104,7 @@ export interface PhoneVerificationResult {
  */
 export declare function sendPhoneVerification(options: PhoneVerificationRequestOptions): Promise<PhoneVerificationChallenge>;
 /**
- * Checks the code the visitor received (`POST /api/v1/forms/{formId}/phone-verification`).
+ * Checks the code the visitor received (`POST /v1/forms/{formId}/phone-verification`).
  * Resolves with the verified E.164 number, or throws `MoreflowFormError` — commonly
  * `INVALID_VERIFICATION_CODE` (let the visitor retype), `VERIFICATION_PROOF_EXPIRED`
  * or `VERIFICATION_PROOF_REPLAYED` (start a new challenge with

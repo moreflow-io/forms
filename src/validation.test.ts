@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isComponentVisibleToVisitors,
   normalizePublicFormDefinition,
   prepareSubmissionData,
   validateComponentValue,
@@ -49,6 +50,23 @@ describe('validateComponentValue', () => {
     ).toMatchObject({ code: 'CONSENT_REQUIRED' });
     expect(
       validateComponentValue(component({ type: 'privacy_policy', required: true }), true)
+    ).toBeNull();
+  });
+
+  it('never reports tracking_consent as CONSENT_REQUIRED, even when a definition marks it required', () => {
+    const tracking = component({
+      type: 'tracking_consent',
+      required: true,
+      checkboxText: 'Ich bin einverstanden.'
+    });
+    expect(validateComponentValue(tracking, false)).toBeNull();
+    expect(validateComponentValue(tracking, undefined)).toBeNull();
+    expect(validateComponentValue(tracking, true)).toBeNull();
+  });
+
+  it('skips a hidden tracking_consent checkbox (empty checkboxText) entirely', () => {
+    expect(
+      validateComponentValue(component({ type: 'tracking_consent', required: true }), false)
     ).toBeNull();
   });
 
@@ -118,5 +136,56 @@ describe('prepareSubmissionData', () => {
     expect(prepareSubmissionData(definition, { phone: 'not a phone' })).toEqual({
       phone: 'not a phone'
     });
+  });
+
+  it('submits a checked tracking_consent as true and an unchecked one as false', () => {
+    const consentDefinition = normalizePublicFormDefinition(
+      {
+        id: 'form-2',
+        version: {
+          id: 'version-2',
+          version: 1,
+          pages: [
+            {
+              id: 'page-1',
+              type: 'regular',
+              components: [
+                { id: 'email', type: 'email', required: true },
+                { id: 'tracking', type: 'tracking_consent', checkboxText: 'Einverstanden.' }
+              ]
+            }
+          ]
+        }
+      },
+      { formId: 'form-2' }
+    );
+    expect(
+      prepareSubmissionData(consentDefinition, { email: 'ada@example.com', tracking: true })
+    ).toEqual({ email: 'ada@example.com', tracking: true });
+    expect(
+      prepareSubmissionData(consentDefinition, { email: 'ada@example.com', tracking: false })
+    ).toEqual({ email: 'ada@example.com', tracking: false });
+  });
+
+  it('drops values for a hidden tracking_consent checkbox', () => {
+    const hiddenDefinition = normalizePublicFormDefinition(
+      {
+        id: 'form-3',
+        version: {
+          id: 'version-3',
+          version: 1,
+          pages: [
+            {
+              id: 'page-1',
+              type: 'regular',
+              components: [{ id: 'tracking', type: 'tracking_consent', checkboxText: '' }]
+            }
+          ]
+        }
+      },
+      { formId: 'form-3' }
+    );
+    expect(isComponentVisibleToVisitors({ type: 'tracking_consent', checkboxText: '' })).toBe(false);
+    expect(prepareSubmissionData(hiddenDefinition, { tracking: true })).toEqual({});
   });
 });

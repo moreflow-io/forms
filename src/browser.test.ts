@@ -8,6 +8,7 @@ type BrowserForms = Pick<
   | 'checkPhoneVerification'
   | 'describePhoneInput'
   | 'getPublicForm'
+  | 'mountTurnstile'
   | 'normalizePhoneNumber'
   | 'phoneVerificationRequired'
   | 'resolveFormMessage'
@@ -30,8 +31,34 @@ const throwingStorage = {
   }
 };
 
-function loadBrowserForms(): BrowserForms {
-  const context = createContext({
+function loadBrowserForms() {
+  let appendedScript:
+    | {
+        listeners: Map<string, () => void>;
+      }
+    | undefined;
+  const document = {
+    cookie: '',
+    referrer: '',
+    querySelector() {
+      return null;
+    },
+    createElement() {
+      const listeners = new Map<string, () => void>();
+      return {
+        listeners,
+        addEventListener(event: string, listener: () => void) {
+          listeners.set(event, listener);
+        }
+      };
+    },
+    head: {
+      append(script: { listeners: Map<string, () => void> }) {
+        appendedScript = script;
+      }
+    }
+  };
+  const sandbox = {
     Headers,
     Response,
     URL,
@@ -41,20 +68,32 @@ function loadBrowserForms(): BrowserForms {
         return bytes;
       }
     },
-    sessionStorage: throwingStorage
-  });
+    sessionStorage: throwingStorage,
+    document,
+    window: undefined as unknown
+  };
+  sandbox.window = sandbox;
+  const context = createContext(sandbox);
 
   runInContext(browserBundle, context, { filename: 'dist/browser.js' });
   const forms = Reflect.get(context, 'MoreflowForms');
   expect(forms).toBeTruthy();
-  return forms as BrowserForms;
+  return {
+    forms: forms as BrowserForms,
+    setTurnstile(value: unknown) {
+      Reflect.set(context, 'turnstile', value);
+    },
+    finishTurnstileLoad() {
+      appendedScript?.listeners.get('load')?.();
+    }
+  };
 }
 
 describe('@moreflow/forms browser build', () => {
   it('runs as a classic script with the global API, storage fallback, phone normalization, and auth', async () => {
     expect(browserBundle).not.toMatch(/(?:^|\n)\s*import\s/mu);
 
-    const forms = loadBrowserForms();
+    const { forms } = loadBrowserForms();
     expect(forms.normalizePhoneNumber('+49 (170) 1234567')).toEqual({
       status: 'valid',
       e164: '+491701234567'
@@ -158,5 +197,26 @@ describe('@moreflow/forms browser build', () => {
       country: 'DE',
       nationalNumber: '1701234567'
     });
+    expect(typeof forms.mountTurnstile).toBe('function');
+  });
+
+  it('injects and explicitly renders the optional Turnstile helper from the IIFE', async () => {
+    const { forms, setTurnstile, finishTurnstileLoad } = loadBrowserForms();
+    const render = (container: object, options: Record<string, unknown>) => {
+      expect(container).toEqual({ id: 'turnstile-container' });
+      expect(options).toMatchObject({ sitekey: 'public-site-key', 'response-field': false });
+      return 'browser-widget';
+    };
+    const reset = (widgetId: string) => expect(widgetId).toBe('browser-widget');
+    const remove = (widgetId: string) => expect(widgetId).toBe('browser-widget');
+
+    const mounting = forms.mountTurnstile({ id: 'turnstile-container' } as HTMLElement, {
+      siteKey: 'public-site-key'
+    });
+    setTurnstile({ ready: (callback: () => void) => callback(), render, reset, remove });
+    finishTurnstileLoad();
+    const mounted = await mounting;
+    mounted.reset();
+    mounted.destroy();
   });
 });

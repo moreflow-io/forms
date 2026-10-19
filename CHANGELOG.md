@@ -2,6 +2,27 @@
 
 All notable changes to `@moreflow/forms` are documented in this file.
 
+## 0.7.0
+
+- Read the clean v1 public form resource in `getPublicForm` and `normalizePublicFormDefinition`: the form `id`, `name`, `accountId`, `honeypotField`, `spamProtection` at the root, and the published `version` with camelCase `fieldMatching`. The v1 field is preferred whenever both shapes are present.
+- Keep reading the legacy production shape as a fallback until every embed is upgraded: `record.data.config.current_version`, `record.id`, `record.accountId`, `record.data.name`, and the snake_case `field_matching` alias still normalize to the same `PublicFormDefinition`.
+- Read the v1 form field flag `required` first and fall back to the legacy `isRequired` key, so both persisted component shapes normalize to `required: boolean`. The public API now emits only `required`; `raw` still carries the original component object.
+- Add the `tracking_consent` component type for email tracking consent. It is always optional and never yields `CONSENT_REQUIRED`, even when a definition marks it required. While its account-authored `checkboxText` is empty it is hidden from visitors (`isComponentVisibleToVisitors`), and `partitionFormPages`, `formInputComponents`, validation and `prepareSubmissionData` skip it.
+- Remove the unused dialog-button message from the default form catalogs.
+  Customer-owned forms continue to use the public API; the legacy iframe SDK
+  has been retired in Moreflow.
+
+## 0.6.0
+
+- Document stable form-scoped image URLs returned by the public API for custom embeds.
+- Export PublicFormAccountId and use it for PublicFormDefinition.accountId so account IDs retain their semantic type in TypeScript consumers.
+- Rebuild the browser, ESM, and declaration bundles with the current package tooling.
+
+## 0.5.0
+
+- Add optional `mountTurnstile` browser mounting with reset and destroy controls, and expose public Turnstile configuration in form definitions.
+- Expose the form honeypot field and retain spam inputs in idempotent submission payloads.
+
 ## 0.4.0
 
 - Add `getPublicForm` and `normalizePublicFormDefinition`: load a published form (`GET /api/v1/forms/{formId}`) as one canonical, typed `PublicFormDefinition`. The normalizer absorbs every historical response shape — the top-level `version`, the legacy `record.data.config.current_version` copy, snake_case `field_matching`, string options, the `required`/`isRequired` duality — and prefers the candidate whose thank-you page still carries its content props. Load failures throw `MoreflowFormError` with the server's navigational code (`FORM_NOT_FOUND`, `FORM_RETIRED`, `FORM_UNPUBLISHED`, `INVALID_FORM_DEFINITION`).

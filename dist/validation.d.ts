@@ -23,8 +23,9 @@ export declare function validateFormPage(page: PublicFormRegularPage, values: Re
 export declare function validateFormValues(definition: PublicFormDefinition, values: Record<string, unknown>, options?: FormValidationOptions): FormValidationIssue[];
 /**
  * Prepares entered values for `submitWithRetry`: phone fields are normalized
- * to E.164, empty phone fields are dropped, and `undefined` entries are
- * removed. Invalid phone values are left unchanged so validation (not
- * submission) reports them. Other values pass through untouched.
+ * to E.164, empty phone fields are dropped, `undefined` entries are removed,
+ * and values for hidden `tracking_consent` checkboxes are dropped. Invalid
+ * phone values are left unchanged so validation (not submission) reports
+ * them. Other values, including consent booleans, pass through untouched.
  */
 export declare function prepareSubmissionData(definition: PublicFormDefinition, values: Record<string, JsonValue | undefined>, options?: FormValidationOptions): JsonObject;

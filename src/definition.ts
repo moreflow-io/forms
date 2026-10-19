@@ -21,7 +21,7 @@ export interface PublicFormComponent {
   label?: string | undefined;
   /** Placeholder text or a `forms.*` message key. */
   placeholder?: string | undefined;
-  /** Merged from the persisted `required`/`isRequired` duality. */
+  /** Read from `required`, falling back to the legacy persisted `isRequired` key. */
   required: boolean;
   showLabel?: boolean | undefined;
   showPlaceholder?: boolean | undefined;
@@ -70,10 +70,34 @@ export interface PublicFormFieldMatch {
   clientField: string;
 }
 
+export interface PublicFormTurnstileProtection {
+  /** A public site key. The server-side secret is never part of a definition. */
+  siteKey: string;
+  mode: 'off' | 'flag' | 'require';
+}
+
+export interface PublicFormSpamProtection {
+  turnstile: PublicFormTurnstileProtection;
+}
+
+/**
+ * Standalone SDK projection of Moreflow's canonical AccountId brand.
+ * Keep its structure compatible with types/domain/ids.ts without importing
+ * private monorepo source into the published package.
+ */
+export type PublicFormAccountId = string & {
+  readonly __tableName: 'accounts';
+  readonly __domainId?: 'AccountId' | undefined;
+};
+
 export interface PublicFormDefinition {
   formId: string;
-  accountId?: string | undefined;
+  accountId?: PublicFormAccountId | undefined;
   name?: string | undefined;
+  /** Render an off-screen text input with this name and submit its value as `input.spam.honeypot`. */
+  honeypotField: string;
+  /** Discovery configuration for optional Turnstile mounting in a custom embed. */
+  spamProtection: PublicFormSpamProtection;
   versionId?: string | undefined;
   versionNumber?: number | undefined;
   publishedAt?: string | undefined;
@@ -95,10 +119,30 @@ export const PRESENTATIONAL_COMPONENT_TYPES: ReadonlySet<string> = new Set([
 
 export const PHONE_COMPONENT_TYPES: ReadonlySet<string> = new Set(['phone', 'phone_number']);
 
+/**
+ * Consent checkboxes. `tracking_consent` is optional by design: it never
+ * blocks submission, and its text is account-authored (see
+ * {@link isComponentVisibleToVisitors}).
+ */
 export const CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
   'privacy_policy',
-  'privacy_checkbox'
+  'privacy_checkbox',
+  'tracking_consent'
 ]);
+
+/**
+ * Whether a visitor should see and fill in a component. A `tracking_consent`
+ * checkbox is hidden while its account-authored `checkboxText` is empty or
+ * whitespace; Moreflow never supplies that legal wording itself. Every other
+ * component is always visible.
+ */
+export function isComponentVisibleToVisitors(component: {
+  type: string;
+  checkboxText?: string | undefined;
+}): boolean {
+  if (component.type !== 'tracking_consent') return true;
+  return typeof component.checkboxText === 'string' && component.checkboxText.trim().length > 0;
+}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
@@ -133,7 +177,9 @@ function normalizeComponent(value: unknown): PublicFormComponent | null {
     type,
     label: stringValue(value.label),
     placeholder: stringValue(value.placeholder),
-    required: Boolean(value.required ?? value.isRequired),
+    // tracking_consent is always optional, whatever the persisted flag says.
+    required:
+      type === 'tracking_consent' ? false : Boolean(value.required ?? value.isRequired),
     showLabel: typeof value.showLabel === 'boolean' ? value.showLabel : undefined,
     showPlaceholder: typeof value.showPlaceholder === 'boolean' ? value.showPlaceholder : undefined,
     ...(options ? { options } : {}),
@@ -198,11 +244,14 @@ function normalizeFieldMatching(value: unknown): PublicFormFieldMatch[] {
   });
 }
 
+/** Reads the v1 `fieldMatching` first and the legacy snake_case alias second, source by source. */
 function fieldMatchingFrom(...sources: unknown[]): PublicFormFieldMatch[] {
   for (const source of sources) {
     if (!isRecord(source)) continue;
-    const matches = normalizeFieldMatching(source.fieldMatching ?? source.field_matching);
+    const matches = normalizeFieldMatching(source.fieldMatching);
     if (matches.length > 0) return matches;
+    const legacyMatches = normalizeFieldMatching(source.field_matching);
+    if (legacyMatches.length > 0) return legacyMatches;
   }
   return [];
 }
@@ -219,12 +268,30 @@ function hasThankYouContentProps(candidate: Record<string, unknown>): boolean {
   );
 }
 
+function spamProtectionFrom(value: unknown): PublicFormSpamProtection {
+  const source = isRecord(value) ? value : {};
+  const turnstile = isRecord(source.turnstile) ? source.turnstile : {};
+  const mode = stringValue(turnstile.mode);
+  return {
+    turnstile: {
+      siteKey: stringValue(turnstile.siteKey) ?? '',
+      mode: mode === 'flag' || mode === 'require' ? mode : 'off'
+    }
+  };
+}
+
 /**
- * Normalizes any shape the public form endpoint has historically returned into
- * one canonical {@link PublicFormDefinition}: the top-level `version`, the
- * legacy copy under `record.data.config.current_version`, snake_case
- * `field_matching`, string options, and the `required`/`isRequired` duality.
- * Prefers the candidate whose thank-you page still carries its content props.
+ * Normalizes the public form response into one canonical
+ * {@link PublicFormDefinition}.
+ *
+ * The clean v1 resource carries the form at the root (`id`, `name`,
+ * `accountId`, `honeypotField`, `spamProtection`) and the published version as
+ * `version` (camelCase `fieldMatching`). Responses from before v1 also carried
+ * a `record` copy with `record.data.config.current_version`, a snake_case
+ * `field_matching` alias and string options; those remain readable as a
+ * fallback for embeds that still receive the legacy production shape. Where
+ * both are present, the v1 field wins. Prefers the candidate whose thank-you
+ * page still carries its content props.
  */
 export function normalizePublicFormDefinition(
   body: unknown,
@@ -261,9 +328,9 @@ export function normalizePublicFormDefinition(
     .filter((page) => page !== null);
 
   const formId =
+    stringValue(root.id) ??
     stringValue(selected.formId) ??
     stringValue(record?.id) ??
-    stringValue(root.id) ??
     options.formId;
   if (!formId) {
     throw new MoreflowFormError({
@@ -275,11 +342,16 @@ export function normalizePublicFormDefinition(
   }
 
   const versionNumber = typeof selected.version === 'number' ? selected.version : undefined;
-
+  // The public API response is an external payload boundary for the account ID brand.
+  const accountId = (stringValue(root.accountId) ??
+    stringValue(selected.accountId) ??
+    stringValue(record?.accountId)) as PublicFormAccountId | undefined;
   return {
     formId,
-    accountId: stringValue(selected.accountId) ?? stringValue(record?.accountId),
-    name: stringValue(recordData?.name) ?? stringValue(selected.name),
+    accountId,
+    name: stringValue(root.name) ?? stringValue(recordData?.name) ?? stringValue(selected.name),
+    honeypotField: stringValue(root.honeypotField) ?? 'website',
+    spamProtection: spamProtectionFrom(root.spamProtection),
     versionId: stringValue(selected.id) === formId ? undefined : stringValue(selected.id),
     versionNumber,
     publishedAt: stringValue(selected.publishedAt),
@@ -302,7 +374,7 @@ export interface GetPublicFormOptions {
 
 /**
  * Loads the published definition of a public form
- * (`GET /api/v1/forms/{formId}`) and returns it as one canonical
+ * (`GET /v1/forms/{formId}`) and returns it as one canonical
  * {@link PublicFormDefinition}, so embeds never have to probe response shapes.
  * Failures throw {@link MoreflowFormError} with the server's navigational code
  * (`FORM_NOT_FOUND`, `FORM_RETIRED`, `FORM_UNPUBLISHED`, ...).
@@ -314,7 +386,7 @@ export async function getPublicForm(options: GetPublicFormOptions): Promise<Publ
 
   const headers = new Headers(options.headers);
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
-  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/api/v1/forms/${encodeURIComponent(options.formId)}`;
+  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/v1/forms/${encodeURIComponent(options.formId)}`;
 
   let response: Response;
   try {
@@ -354,14 +426,24 @@ export interface PartitionedFormPages {
   thankYou: PublicFormThankYouPage | undefined;
 }
 
+/**
+ * Splits the form into visitor-facing wizard steps and the thank-you page.
+ * Components hidden from visitors (see {@link isComponentVisibleToVisitors})
+ * are left out of `steps`, so embeds render only what they should show.
+ */
 export function partitionFormPages(definition: PublicFormDefinition): PartitionedFormPages {
   return {
-    steps: definition.pages.filter((page) => page.type === 'regular'),
+    steps: definition.pages
+      .filter((page): page is PublicFormRegularPage => page.type === 'regular')
+      .map((page) => ({
+        ...page,
+        components: page.components.filter((component) => isComponentVisibleToVisitors(component))
+      })),
     thankYou: definition.pages.find((page) => page.type === 'thank_you')
   };
 }
 
-/** All input-collecting components across the form's regular pages. */
+/** All visible input-collecting components across the form's regular pages. */
 export function formInputComponents(definition: PublicFormDefinition): PublicFormComponent[] {
   return partitionFormPages(definition).steps.flatMap((page) =>
     page.components.filter((component) => !PRESENTATIONAL_COMPONENT_TYPES.has(component.type))

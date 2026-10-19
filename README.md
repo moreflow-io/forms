@@ -1,13 +1,18 @@
 # `@moreflow/forms`
 
-Headless browser helpers for custom Moreflow forms. The package contains no UI, React, styles, or rendering code: it loads the published form definition in one canonical shape, validates entered values with the same rules the hosted form uses, prepares and submits the payload idempotently, and resolves Moreflow's default labels — so a custom embed only has to render.
+Headless browser helpers for custom Moreflow forms. The default API contains no UI,
+React, styles, or form rendering: it loads the published definition in one canonical
+shape, validates entered values with the same rules the hosted form uses, prepares
+and submits payloads idempotently, and resolves Moreflow's default labels. The only
+optional rendering helper is `mountTurnstile`, a deliberately narrow browser mount
+for the public site key discovered from a Moreflow form definition.
 
 ## Script-tag platforms
 
 For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler, load the browser build before the script that uses it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.4.0/dist/browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.7.0/dist/browser.js"></script>
 <script>
   const forms = window.MoreflowForms;
 
@@ -34,7 +39,7 @@ The host page's Content Security Policy must allow the CDN, for example `script-
 
 ## Loading the form definition
 
-`getPublicForm` loads the published form (`GET /api/v1/forms/{formId}`) and returns one normalized `PublicFormDefinition`, regardless of which historical response shape the API produced. You never probe `record.data.config.current_version` vs `version`, `fieldMatching` vs `field_matching`, or `required` vs `isRequired` yourself — the helper resolves all of that:
+`getPublicForm` loads the published form (`GET /v1/forms/{formId}`) and returns one normalized `PublicFormDefinition`. It reads the clean v1 resource (`id`, `name`, `accountId`, `version` with `fieldMatching`) and still accepts the legacy production shape (`record.data.config.current_version`, snake_case `field_matching`) as a fallback. You never probe `required` vs `isRequired` or either response shape yourself — the helper resolves all of that:
 
 ```ts
 import { getPublicForm, partitionFormPages, resolveFormMessage } from '@moreflow/forms';
@@ -54,6 +59,48 @@ for (const page of steps) {
 ```
 
 Every component carries `id`, `type`, a merged boolean `required`, normalized `options` (`{ value, label }` objects even when strings were persisted), `verifyPhone` for phone fields, and the original persisted object under `raw` for custom passthrough props. `definition.fieldMatching` is typed (`{ formFieldId, clientField }[]`) and should be passed unchanged as `input.fieldMatching` when submitting.
+
+Image blocks (`type: 'image'`, on thank-you pages under `props`) carry a stable `src` that never expires. Render it directly — `<img src={item.props.src} alt={item.props.alt} />` — without refresh timers, expiry checks, or retry handlers: the API answers each request with a redirect to a freshly signed storage URL. The URL keeps working for as long as the image is part of the published form; after a republish that replaces it, load the definition again.
+
+## Optional Turnstile mount
+
+`definition.spamProtection.turnstile` is public discovery data for the form’s
+Turnstile policy. It contains a site key only when Moreflow has a configured
+widget/verifier for the current context. For customer embeds, call
+`mountTurnstile` only after `getPublicForm` returns a non-empty site key; it
+injects Cloudflare’s script once, explicitly renders an invisible managed widget,
+and gives the integration `reset` and `destroy` controls. It does not render any
+other UI or submit a form on your behalf.
+
+```ts
+import { getPublicForm, mountTurnstile } from '@moreflow/forms';
+
+const definition = await getPublicForm({ formId, baseUrl, token });
+const protection = definition.spamProtection.turnstile;
+let turnstile: Awaited<ReturnType<typeof mountTurnstile>> | undefined;
+let turnstileToken = '';
+
+if (protection.siteKey) {
+  turnstile = await mountTurnstile(document.getElementById('turnstile')!, {
+    siteKey: protection.siteKey,
+    onToken: (token) => {
+      turnstileToken = token;
+    },
+    onExpired: () => {
+      turnstileToken = '';
+    }
+  });
+}
+
+// Include `spam: { turnstileToken }` in input when you submit. Reset after an
+// ANTI_SPAM_REQUIRED or ANTI_SPAM_INVALID response, then let the widget issue a
+// fresh short-lived, single-use token. When siteKey is blank, submit normally:
+// the Moreflow server fails open by quarantining the submission instead.
+turnstile?.reset();
+```
+
+The site key is intentionally public. Never put a Cloudflare Turnstile secret,
+Cloudflare API token, or customer Cloudflare credential in an embed.
 
 Failures throw `MoreflowFormError` with the server's navigational code: `FORM_NOT_FOUND` (stale or wrong id), `FORM_RETIRED` (archived), `FORM_UNPUBLISHED` (no active published version), or `INVALID_FORM_DEFINITION` when a proxy returned an unusable body. `baseUrl` defaults to `''` (a same-origin proxy), and `token`, `headers`, `fetchImpl`, and `signal` work like in `submitWithRetry`.
 
@@ -79,7 +126,12 @@ if (issues.length === 0) {
 }
 ```
 
-Presentational components (`heading`, `separator`, `spacing`, `image`, `video`, `iframe`) are skipped automatically. Pass `{ defaultCountry }` to both helpers when the audience is not German (`'DE'` is the default).
+Presentational components (`heading`, `separator`, `spacing`, `image`, `video`, `iframe`) are skipped automatically.
+
+### Tracking consent (`tracking_consent`)
+
+A `tracking_consent` component is an optional checkbox that records the visitor's consent to email tracking. It never blocks submission, even when a definition marks it required, and it is never reported as `CONSENT_REQUIRED`. Its consent text is written by the account in the component's `checkboxText`; Moreflow supplies no wording. While that text is empty or whitespace the component is hidden: `partitionFormPages` and `formInputComponents` leave it out, and `prepareSubmissionData` drops any value for it. Use `isComponentVisibleToVisitors(component)` to apply the same rule yourself. A checked box submits `true` under the component id, and the submission records an email tracking consent grant for the linked client.
+ Pass `{ defaultCountry }` to both helpers when the audience is not German (`'DE'` is the default).
 
 ## Default labels and translations
 
@@ -115,7 +167,7 @@ const result = await submitWithRetry({
 
 `captureAcquisitionTracking()` is re-exported from `@moreflow/tracking` and is the sanctioned way to attach acquisition signals — do not hand-roll your own UTM/cookie capture. It needs no configuration in a browser: it reads the page URL, cookies, `document.referrer`, and `navigator.userAgent` automatically, and every value can still be overridden through its options. Captured tracking is persisted (default: `sessionStorage`) so signals from the landing page survive navigation to the form page.
 
-A privacy/consent checkbox that exists as a form component (`privacy_policy`) is ordinary form data and belongs in `input.data` under its component id. Consent context that is _not_ a form field (for example a marketing opt-in your page adds around the form) belongs in `input.consent`; changing it rotates the idempotency key like any other business-payload change.
+A privacy/consent checkbox that exists as a form component (`privacy_policy`) is ordinary form data and belongs in `input.data` under its component id. A `tracking_consent` checkbox works the same way: a checked box submits `true` under its component id, and an unchecked one submits `false`. Consent context that is _not_ a form field (for example a marketing opt-in your page adds around the form) belongs in `input.consent`; changing it rotates the idempotency key like any other business-payload change.
 
 `submitWithRetry` stores the idempotency key, a business-payload hash, and the exact serialized request body together in `sessionStorage`. Retries are byte-identical — within one call and across separate calls after a reload — because a pending attempt replays the stored body, including the acquisition-tracking snapshot frozen when the attempt was first created. The key rotates whenever the business payload changes (`data`, `fieldMatching`, `utmParams`, `consent`, `spam`, or `formEntryId`), and the record is cleared only after a successful response. Note this means the submitted form data sits in `sessionStorage` (tab-scoped, cleared on success) while an attempt is pending. HTTP 425, 429, network failures, and 5xx responses retry with the same serialized body and key; numeric `Retry-After` headers are honored up to a ceiling (`maxRetryDelayMs`, default 30 seconds). A 409 conflict is surfaced as `MoreflowFormError` so the caller can decide how to recover.
 
@@ -123,7 +175,7 @@ If storage is unavailable or throws — including a caller-provided `StorageLike
 
 Payload fingerprints use SHA-256 when `crypto.subtle` is available and a deterministic djb2 fallback on insecure HTTP pages. Idempotency keys still require `crypto.getRandomValues`, which browsers provide on those pages.
 
-The helper posts to `{baseUrl}/api/v1/forms/{formId}/submissions` and sends both the `Idempotency-Key` header and JSON `idempotencyKey` field. `baseUrl` defaults to `''`, i.e. the page's own origin — the zero-config setup assumes a same-origin proxy in front of the Moreflow API; pass `baseUrl` explicitly to post cross-origin. For cross-origin submissions, pass `token` to send `Authorization: Bearer <token>` on every attempt, including a replay of a stored idempotent body. You can also pass `headers` for additional request headers; the helper always supplies the JSON content type and idempotency key. See the [API idempotency guide](https://api.moreflow.io/api/v1/operations/docs/guide#idempotency) for the server contract and recovery table.
+The helper posts to `{baseUrl}/v1/forms/{formId}/submissions` and sends both the `Idempotency-Key` header and JSON `idempotencyKey` field. `baseUrl` defaults to `''`, i.e. the page's own origin — the zero-config setup assumes a same-origin proxy in front of the Moreflow API; pass `baseUrl` explicitly to post cross-origin. For cross-origin submissions, pass `token` to send `Authorization: Bearer <token>` on every attempt, including a replay of a stored idempotent body. You can also pass `headers` for additional request headers; the helper always supplies the JSON content type and idempotency key. See the [API idempotency guide](https://api.moreflow.io/v1/operations/docs/guide#idempotency) for the server contract and recovery table.
 
 ## Error messages
 
@@ -190,7 +242,7 @@ if (phoneVerificationRequired(definition)) {
 }
 ```
 
-The helpers call the public `PUT`/`POST /api/v1/forms/{formId}/phone-verification` endpoints (no token needed; the endpoints are rate limited). `baseUrl` defaults to `''` — the same same-origin-proxy assumption as `submitWithRetry` — and `token`, `headers`, `fetchImpl`, `signal`, and `defaultCountry` work the same way. Both helpers normalize the input to E.164 first and reject invalid numbers locally as `MoreflowFormError` with code `INVALID_PHONE_NUMBER`, without contacting the server.
+The helpers call the public `PUT`/`POST /v1/forms/{formId}/phone-verification` endpoints (no token needed; the endpoints are rate limited). `baseUrl` defaults to `''` — the same same-origin-proxy assumption as `submitWithRetry` — and `token`, `headers`, `fetchImpl`, `signal`, and `defaultCountry` work the same way. Both helpers normalize the input to E.164 first and reject invalid numbers locally as `MoreflowFormError` with code `INVALID_PHONE_NUMBER`, without contacting the server.
 
 Failures are `MoreflowFormError` with the server's navigational code: `INVALID_VERIFICATION_CODE` means let the visitor retype the code; `VERIFICATION_PROOF_EXPIRED` and `VERIFICATION_PROOF_REPLAYED` mean start a new challenge with `sendPhoneVerification`; a 429 sets `retryable` with the usual `Retry-After` semantics. Neither helper retries on its own — every send is a real SMS — so offer an explicit "resend code" action instead of resending automatically. A challenge expires after roughly ten minutes and can be used once.
 

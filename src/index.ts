@@ -49,6 +49,7 @@ export {
   CONSENT_COMPONENT_TYPES,
   formInputComponents,
   getPublicForm,
+  isComponentVisibleToVisitors,
   normalizePublicFormDefinition,
   partitionFormPages,
   PHONE_COMPONENT_TYPES,
@@ -59,15 +60,20 @@ export {
 export type {
   GetPublicFormOptions,
   PartitionedFormPages,
+  PublicFormAccountId,
   PublicFormComponent,
   PublicFormDefinition,
   PublicFormFieldMatch,
   PublicFormOption,
   PublicFormPage,
   PublicFormRegularPage,
+  PublicFormSpamProtection,
   PublicFormThankYouItem,
-  PublicFormThankYouPage
+  PublicFormThankYouPage,
+  PublicFormTurnstileProtection
 } from './definition';
+export { mountTurnstile } from './turnstile';
+export type { MountedTurnstile, TurnstileMountOptions } from './turnstile';
 export {
   prepareSubmissionData,
   validateComponentValue,
@@ -264,12 +270,20 @@ function retryDelay(
   return Math.min(delay, maxDelay);
 }
 
-function submissionHeaders(options: SubmitWithRetryOptions, idempotencyKey: string): Headers {
-  const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
-  headers.set('Idempotency-Key', idempotencyKey);
-  if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
-  return headers;
+function submissionHeaders(options: SubmitWithRetryOptions): Headers {
+  try {
+    const headers = new Headers(options.headers);
+    headers.set('Content-Type', 'application/json');
+    if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
+    return headers;
+  } catch (cause) {
+    throw new MoreflowFormError({
+      message: 'The form submission headers or token contain an invalid value.',
+      code: 'INVALID_SUBMISSION_HEADERS',
+      retryable: false,
+      cause
+    });
+  }
 }
 
 const defaultSleep = (milliseconds: number) =>
@@ -286,6 +300,9 @@ export async function submitWithRetry<T = unknown>(
   const sleep = options.sleep ?? defaultSleep;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
   if (!fetchImpl) throw new Error('A fetch implementation is required to submit a Moreflow form.');
+  // Header and bearer-token validation is deterministic. Build it before any
+  // idempotency state or retry work so invalid caller input fails immediately.
+  const headers = submissionHeaders(options);
 
   const { tracking: inputTracking, ...inputWithoutTracking } = options.input;
   const tracking = Object.freeze({
@@ -313,13 +330,14 @@ export async function submitWithRetry<T = unknown>(
   const body =
     attempt.requestBody ??
     JSON.stringify({ ...inputWithoutTracking, tracking, idempotencyKey: attempt.key });
-  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/api/v1/forms/${encodeURIComponent(options.formId)}/submissions`;
+  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/v1/forms/${encodeURIComponent(options.formId)}/submissions`;
+  headers.set('Idempotency-Key', attempt.key);
 
   for (let retry = 0; retry < maxAttempts; retry += 1) {
     try {
       const response = await fetchImpl(url, {
         method: 'POST',
-        headers: submissionHeaders(options, attempt.key),
+        headers,
         body,
         ...(options.signal ? { signal: options.signal } : {})
       });
@@ -432,7 +450,7 @@ async function phoneVerificationRequest(
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
-  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/api/v1/forms/${encodeURIComponent(options.formId)}/phone-verification`;
+  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/v1/forms/${encodeURIComponent(options.formId)}/phone-verification`;
 
   let response: Response;
   try {
@@ -467,7 +485,7 @@ async function phoneVerificationRequest(
 
 /**
  * Starts phone verification for a form whose phone field requires it
- * (`PUT /api/v1/forms/{formId}/phone-verification`). The server texts a code to
+ * (`PUT /v1/forms/{formId}/phone-verification`). The server texts a code to
  * the number and returns a challenge id for {@link checkPhoneVerification}.
  *
  * Each call sends a real SMS, so the helper never retries by itself; inspect
@@ -500,7 +518,7 @@ export async function sendPhoneVerification(
 }
 
 /**
- * Checks the code the visitor received (`POST /api/v1/forms/{formId}/phone-verification`).
+ * Checks the code the visitor received (`POST /v1/forms/{formId}/phone-verification`).
  * Resolves with the verified E.164 number, or throws `MoreflowFormError` — commonly
  * `INVALID_VERIFICATION_CODE` (let the visitor retype), `VERIFICATION_PROOF_EXPIRED`
  * or `VERIFICATION_PROOF_REPLAYED` (start a new challenge with

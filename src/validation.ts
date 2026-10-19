@@ -1,5 +1,6 @@
 import {
   CONSENT_COMPONENT_TYPES,
+  isComponentVisibleToVisitors,
   PHONE_COMPONENT_TYPES,
   PRESENTATIONAL_COMPONENT_TYPES,
   partitionFormPages,
@@ -64,6 +65,10 @@ export function validateComponentValue(
   options: FormValidationOptions = {}
 ): FormValidationIssue | null {
   if (PRESENTATIONAL_COMPONENT_TYPES.has(component.type)) return null;
+  // Hidden components never reach visitors, so they can never block submission.
+  if (!isComponentVisibleToVisitors(component)) return null;
+  // tracking_consent is optional by design, even when a definition marks it required.
+  if (component.type === 'tracking_consent') return null;
 
   if (CONSENT_COMPONENT_TYPES.has(component.type)) {
     if (component.required && !value) {
@@ -119,9 +124,10 @@ export function validateFormValues(
 
 /**
  * Prepares entered values for `submitWithRetry`: phone fields are normalized
- * to E.164, empty phone fields are dropped, and `undefined` entries are
- * removed. Invalid phone values are left unchanged so validation (not
- * submission) reports them. Other values pass through untouched.
+ * to E.164, empty phone fields are dropped, `undefined` entries are removed,
+ * and values for hidden `tracking_consent` checkboxes are dropped. Invalid
+ * phone values are left unchanged so validation (not submission) reports
+ * them. Other values, including consent booleans, pass through untouched.
  */
 export function prepareSubmissionData(
   definition: PublicFormDefinition,
@@ -133,8 +139,13 @@ export function prepareSubmissionData(
     if (value !== undefined) data[key] = value;
   }
 
-  for (const page of partitionFormPages(definition).steps) {
+  for (const page of definition.pages) {
+    if (page.type !== 'regular') continue;
     for (const component of page.components) {
+      if (component.type === 'tracking_consent' && !isComponentVisibleToVisitors(component)) {
+        delete data[component.id];
+        continue;
+      }
       if (!PHONE_COMPONENT_TYPES.has(component.type)) continue;
       const value = data[component.id];
       if (typeof value !== 'string') continue;

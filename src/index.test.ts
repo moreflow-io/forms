@@ -141,6 +141,39 @@ describe('@moreflow/forms', () => {
     }
   });
 
+  it.each([
+    { headers: { 'X-Embed-Source': 'invalid\r\nvalue' } },
+    { token: 'mfo_valid-prefix\r\ninvalid' }
+  ])('fails fast when submission request headers are invalid', async (invalidOptions) => {
+    const fetchImpl = vi.fn();
+    const sleep = vi.fn(async () => {});
+    const storage = createMemoryStorage();
+
+    await expect(
+      submitWithRetry({
+        formId: 'form-invalid-headers',
+        input: { data: { name: 'Ada' } },
+        tracking: {},
+        maxAttempts: 3,
+        fetchImpl,
+        sleep,
+        storage,
+        ...invalidOptions
+      })
+    ).rejects.toMatchObject({
+      name: 'MoreflowFormError',
+      message: 'The form submission headers or token contain an invalid value.',
+      code: 'INVALID_SUBMISSION_HEADERS',
+      retryable: false
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(
+      createIdempotencyStore({ storage, storageKey: 'moreflow:idempotency:form-invalid-headers' }).read()
+    ).toBe(null);
+  });
+
   it('keeps a failed key for replay and exposes conflict recovery without rotating it', async () => {
     const storage = createMemoryStorage();
     let key: string | null = null;
@@ -442,7 +475,7 @@ describe('phone verification helpers', () => {
       expiresAt: '2026-01-01T00:10:00Z'
     });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.example.test/api/v1/forms/form-1/phone-verification');
+    expect(url).toBe('https://api.example.test/v1/forms/form-1/phone-verification');
     expect(init.method).toBe('PUT');
     expect(JSON.parse(init.body as string)).toEqual({ phoneNumber: '+491701234567' });
     expect(new Headers(init.headers).get('content-type')).toBe('application/json');
@@ -499,7 +532,7 @@ describe('phone verification helpers', () => {
 
     expect(result).toEqual({ verified: true, phoneNumber: '+491701234567' });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('/api/v1/forms/form-1/phone-verification');
+    expect(url).toBe('/v1/forms/form-1/phone-verification');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({
       phoneNumber: '+491701234567',
