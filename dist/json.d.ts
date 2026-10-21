@@ -5,4 +5,3 @@ export type JsonValue = JsonPrimitive | JsonValue[] | {
 export type JsonObject = {
     [key: string]: JsonValue | undefined;
 };
-export declare function isRecord(value: unknown): value is Record<string, unknown>;

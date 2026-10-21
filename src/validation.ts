@@ -1,15 +1,20 @@
 import {
   CONSENT_COMPONENT_TYPES,
   isComponentVisibleToVisitors,
+  OPTIONAL_CONSENT_COMPONENT_TYPES,
   PHONE_COMPONENT_TYPES,
   PRESENTATIONAL_COMPONENT_TYPES,
   partitionFormPages,
   type PublicFormComponent,
   type PublicFormDefinition,
-  type PublicFormRegularPage
+  type PublicFormRegularPage,
+  type VisitorVisibilityOptions,
+  withDefinitionCompanyName
 } from './definition';
-import { isRecord, type JsonObject, type JsonValue } from './json';
+import { isRecord } from './internal/values';
+import type { JsonObject, JsonValue } from './json';
 import { normalizePhoneNumber, type NormalizePhoneNumberOptions } from './phone';
+import { validationMessage } from './validation-messages';
 
 export type FormValidationCode =
   | 'REQUIRED'
@@ -22,21 +27,26 @@ export interface FormValidationIssue {
   componentId: string;
   componentType: string;
   code: FormValidationCode;
-  /** Canonical English sentence; map `code` to your own translated copy instead of showing this verbatim. */
+  /** The English text; show `validationMessage(issue, { language })` to visitors instead. */
   message: string;
 }
 
-export type FormValidationOptions = NormalizePhoneNumberOptions;
+/**
+ * Phone parsing options plus the `companyName` your page shows, which decides
+ * whether a `marketing_consent` box is visible (see `isComponentVisibleToVisitors`).
+ */
+export type FormValidationOptions = NormalizePhoneNumberOptions & VisitorVisibilityOptions;
 
 // Same pattern the canonical Moreflow renderer uses.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
-function issue(
-  component: PublicFormComponent,
-  code: FormValidationCode,
-  message: string
-): FormValidationIssue {
-  return { componentId: component.id, componentType: component.type, code, message };
+function issue(component: PublicFormComponent, code: FormValidationCode): FormValidationIssue {
+  return {
+    componentId: component.id,
+    componentType: component.type,
+    code,
+    message: validationMessage({ code }, { language: 'en' })
+  };
 }
 
 function isEmptyValue(value: unknown): boolean {
@@ -66,32 +76,32 @@ export function validateComponentValue(
 ): FormValidationIssue | null {
   if (PRESENTATIONAL_COMPONENT_TYPES.has(component.type)) return null;
   // Hidden components never reach visitors, so they can never block submission.
-  if (!isComponentVisibleToVisitors(component)) return null;
-  // tracking_consent is optional by design, even when a definition marks it required.
-  if (component.type === 'tracking_consent') return null;
+  if (!isComponentVisibleToVisitors(component, options)) return null;
+  // Tracking and marketing consent are optional by design, even when a definition marks them required.
+  if (OPTIONAL_CONSENT_COMPONENT_TYPES.has(component.type)) return null;
 
   if (CONSENT_COMPONENT_TYPES.has(component.type)) {
     if (component.required && !value) {
-      return issue(component, 'CONSENT_REQUIRED', 'Consent is required.');
+      return issue(component, 'CONSENT_REQUIRED');
     }
     return null;
   }
 
   if (component.required && isEmptyValue(value)) {
-    return issue(component, 'REQUIRED', 'This field is required.');
+    return issue(component, 'REQUIRED');
   }
   if (component.required && component.type === 'address' && incompleteAddress(value)) {
-    return issue(component, 'INCOMPLETE_ADDRESS', 'Please fill out all required address fields.');
+    return issue(component, 'INCOMPLETE_ADDRESS');
   }
 
   if (typeof value === 'string' && value.trim() !== '') {
     if (component.type === 'email' && !EMAIL_PATTERN.test(value.trim())) {
-      return issue(component, 'INVALID_EMAIL', 'Please enter a valid email address.');
+      return issue(component, 'INVALID_EMAIL');
     }
     if (PHONE_COMPONENT_TYPES.has(component.type)) {
       const phone = normalizePhoneNumber(value, options);
       if (phone.status === 'invalid') {
-        return issue(component, 'INVALID_PHONE_NUMBER', 'Please enter a valid phone number.');
+        return issue(component, 'INVALID_PHONE_NUMBER');
       }
     }
   }
@@ -117,7 +127,8 @@ export function validateFormValues(
   values: Record<string, unknown>,
   options: FormValidationOptions = {}
 ): FormValidationIssue[] {
-  return partitionFormPages(definition).steps.flatMap((page) =>
+  options = withDefinitionCompanyName(definition, options);
+  return partitionFormPages(definition, options).steps.flatMap((page) =>
     validateFormPage(page, values, options)
   );
 }
@@ -125,8 +136,9 @@ export function validateFormValues(
 /**
  * Prepares entered values for `submitWithRetry`: phone fields are normalized
  * to E.164, empty phone fields are dropped, `undefined` entries are removed,
- * and values for hidden `tracking_consent` checkboxes are dropped. Invalid
- * phone values are left unchanged so validation (not submission) reports
+ * and values for hidden `tracking_consent` and `marketing_consent` checkboxes
+ * are dropped (`companyName` defaults to `definition.companyName`, which keeps
+ * a visible marketing box). Invalid phone values are left unchanged so validation (not submission) reports
  * them. Other values, including consent booleans, pass through untouched.
  */
 export function prepareSubmissionData(
@@ -134,6 +146,7 @@ export function prepareSubmissionData(
   values: Record<string, JsonValue | undefined>,
   options: FormValidationOptions = {}
 ): JsonObject {
+  options = withDefinitionCompanyName(definition, options);
   const data: JsonObject = {};
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined) data[key] = value;
@@ -142,7 +155,10 @@ export function prepareSubmissionData(
   for (const page of definition.pages) {
     if (page.type !== 'regular') continue;
     for (const component of page.components) {
-      if (component.type === 'tracking_consent' && !isComponentVisibleToVisitors(component)) {
+      if (
+        OPTIONAL_CONSENT_COMPONENT_TYPES.has(component.type) &&
+        !isComponentVisibleToVisitors(component, options)
+      ) {
         delete data[component.id];
         continue;
       }

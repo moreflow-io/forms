@@ -1,15 +1,19 @@
-import { type PublicFormComponent, type PublicFormDefinition, type PublicFormRegularPage } from './definition';
-import { type JsonObject, type JsonValue } from './json';
+import { type PublicFormComponent, type PublicFormDefinition, type PublicFormRegularPage, type VisitorVisibilityOptions } from './definition';
+import type { JsonObject, JsonValue } from './json';
 import { type NormalizePhoneNumberOptions } from './phone';
 export type FormValidationCode = 'REQUIRED' | 'INVALID_EMAIL' | 'INVALID_PHONE_NUMBER' | 'CONSENT_REQUIRED' | 'INCOMPLETE_ADDRESS';
 export interface FormValidationIssue {
     componentId: string;
     componentType: string;
     code: FormValidationCode;
-    /** Canonical English sentence; map `code` to your own translated copy instead of showing this verbatim. */
+    /** The English text; show `validationMessage(issue, { language })` to visitors instead. */
     message: string;
 }
-export type FormValidationOptions = NormalizePhoneNumberOptions;
+/**
+ * Phone parsing options plus the `companyName` your page shows, which decides
+ * whether a `marketing_consent` box is visible (see `isComponentVisibleToVisitors`).
+ */
+export type FormValidationOptions = NormalizePhoneNumberOptions & VisitorVisibilityOptions;
 /**
  * Validates one component's value with the same rules the hosted Moreflow form
  * applies: required fields, consent checkboxes, email format, address
@@ -24,8 +28,9 @@ export declare function validateFormValues(definition: PublicFormDefinition, val
 /**
  * Prepares entered values for `submitWithRetry`: phone fields are normalized
  * to E.164, empty phone fields are dropped, `undefined` entries are removed,
- * and values for hidden `tracking_consent` checkboxes are dropped. Invalid
- * phone values are left unchanged so validation (not submission) reports
+ * and values for hidden `tracking_consent` and `marketing_consent` checkboxes
+ * are dropped (`companyName` defaults to `definition.companyName`, which keeps
+ * a visible marketing box). Invalid phone values are left unchanged so validation (not submission) reports
  * them. Other values, including consent booleans, pass through untouched.
  */
 export declare function prepareSubmissionData(definition: PublicFormDefinition, values: Record<string, JsonValue | undefined>, options?: FormValidationOptions): JsonObject;

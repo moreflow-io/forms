@@ -15,6 +15,7 @@ type BrowserForms = Pick<
   | 'sendPhoneVerification'
   | 'submitWithRetry'
   | 'validateFormValues'
+  | 'validationMessage'
 >;
 
 const browserBundle = readFileSync(new URL('../dist/browser.js', import.meta.url), 'utf8');
@@ -114,7 +115,6 @@ describe('@moreflow/forms browser build', () => {
     const result = await forms.submitWithRetry<{ record: { id: string } }>({
       formId: 'browser-form',
       input: { data: { name: 'Ada' } },
-      tracking: {},
       storage: throwingStorage,
       baseUrl: 'https://api.example.test',
       token: 'mfo_browser-token',
@@ -193,6 +193,9 @@ describe('@moreflow/forms browser build', () => {
       { componentId: 'phone', code: 'INVALID_PHONE_NUMBER' }
     ]);
     expect(forms.resolveFormMessage('forms.defaults.phone_number.label')).toBe('Telefonnummer');
+    expect(forms.validationMessage({ code: 'INVALID_PHONE_NUMBER' }, { language: 'en' })).toBe(
+      'Please enter a valid phone number.'
+    );
     expect(forms.describePhoneInput('+49 170 1234567')).toMatchObject({
       country: 'DE',
       nationalNumber: '1701234567'

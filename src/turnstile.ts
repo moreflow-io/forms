@@ -1,3 +1,6 @@
+import { MoreflowFormError } from './error';
+import { validationErrorInit } from './internal/errors';
+
 const TURNSTILE_SCRIPT_URL =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
@@ -25,13 +28,17 @@ type TurnstileWindow = Window & { turnstile?: TurnstileApi | undefined };
 
 let scriptPromise: Promise<TurnstileApi> | undefined;
 
+function turnstileUnavailable(message: string, retryable: boolean) {
+  return new MoreflowFormError({ message, code: 'TURNSTILE_UNAVAILABLE', retryable });
+}
+
 function currentTurnstile() {
   return (window as TurnstileWindow).turnstile;
 }
 
 function loadTurnstileScript() {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return Promise.reject(new Error('Turnstile can only be mounted in a browser.'));
+    return Promise.reject(turnstileUnavailable('Turnstile can only be mounted in a browser.', false));
   }
   const loaded = currentTurnstile();
   if (loaded) return Promise.resolve(loaded);
@@ -47,7 +54,7 @@ function loadTurnstileScript() {
       if (api) resolve(api);
       else {
         scriptPromise = undefined;
-        reject(new Error('Turnstile loaded without its browser API.'));
+        reject(turnstileUnavailable('Turnstile loaded without its browser API.', true));
       }
     };
     script.addEventListener('load', complete, { once: true });
@@ -55,7 +62,7 @@ function loadTurnstileScript() {
       'error',
       () => {
         scriptPromise = undefined;
-        reject(new Error('Turnstile browser script could not be loaded.'));
+        reject(turnstileUnavailable('Turnstile browser script could not be loaded.', true));
       },
       { once: true }
     );
@@ -76,7 +83,9 @@ export async function mountTurnstile(
   container: HTMLElement,
   options: TurnstileMountOptions
 ): Promise<MountedTurnstile> {
-  if (!options.siteKey.trim()) throw new Error('A Turnstile siteKey is required.');
+  if (!options.siteKey.trim()) {
+    throw new MoreflowFormError(validationErrorInit('siteKey', 'A Turnstile siteKey is required.'));
+  }
   const api = await loadTurnstileScript();
   const widgetId = await new Promise<string>((resolve) => {
     api.ready(() => {

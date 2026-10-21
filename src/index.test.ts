@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   captureAcquisitionTracking,
   checkPhoneVerification,
+  configureAcquisitionTracking,
   createIdempotencyStore,
   createMemoryStorage,
   fingerprintPayload,
+  missingFieldIdsFromError,
   MoreflowFormError,
   normalizePhoneNumber,
   normalizePhoneToE164,
@@ -68,6 +70,122 @@ describe('@moreflow/forms', () => {
     expect(retry).toBe(first);
   });
 
+  describe('acquisitionTracking', () => {
+    function stubLandingPage() {
+      vi.stubGlobal('location', { href: 'https://example.test/?utm_source=google', search: '' });
+      vi.stubGlobal('document', { cookie: '_fbp=fb.1.123.456', referrer: '' });
+    }
+
+    async function submitAndReadBody(options: {
+      storage: ReturnType<typeof createMemoryStorage>;
+      acquisitionTracking?: boolean | (() => boolean);
+    }) {
+      let body: Record<string, unknown> = {};
+      await submitWithRetry({
+        formId: 'form-consent',
+        input: { data: { name: 'Ada' } },
+        baseUrl: 'https://api.example.test',
+        storage: options.storage,
+        trackingCapture: { storage: options.storage },
+        ...(options.acquisitionTracking === undefined
+          ? {}
+          : { acquisitionTracking: options.acquisitionTracking }),
+        fetchImpl: async (input, init) => {
+          body = (await new Request(input, init).json()) as Record<string, unknown>;
+          return new Response('{"record":{"id":"submission-1"}}', { status: 200 });
+        }
+      });
+      return body;
+    }
+
+    it('captures nothing and stores nothing by default', async () => {
+      stubLandingPage();
+      const storage = createMemoryStorage();
+
+      const body = await submitAndReadBody({ storage });
+
+      expect(body).not.toHaveProperty('tracking');
+      expect(storage.getItem('moreflow:acquisition:v1')).toBeNull();
+    });
+
+    it('captures URL parameters and Meta cookies when enabled', async () => {
+      stubLandingPage();
+      const storage = createMemoryStorage();
+
+      const body = await submitAndReadBody({ storage, acquisitionTracking: true });
+
+      expect(body.tracking).toMatchObject({ utm_source: 'google', fbp: 'fb.1.123.456' });
+      expect(storage.getItem('moreflow:acquisition:v1')).toContain('google');
+    });
+
+    it('asks a consent function on every submission', async () => {
+      stubLandingPage();
+      const storage = createMemoryStorage();
+      let consented = false;
+
+      const before = await submitAndReadBody({ storage, acquisitionTracking: () => consented });
+      consented = true;
+      const after = await submitAndReadBody({ storage, acquisitionTracking: () => consented });
+
+      expect(before).not.toHaveProperty('tracking');
+      expect(after.tracking).toMatchObject({ utm_source: 'google' });
+    });
+
+    it('submits the values captured under configureAcquisitionTracking', async () => {
+      const localStorage = createMemoryStorage();
+      vi.stubGlobal('window', {});
+      vi.stubGlobal('localStorage', localStorage);
+      vi.stubGlobal('document', { cookie: '', referrer: 'https://google.test/' });
+      configureAcquisitionTracking({ persistence: 'local', model: 'last-touch' });
+      try {
+        // The page captures on landing and again after a client-side route change.
+        captureAcquisitionTracking({
+          location: { href: 'https://example.test/landing?utm_source=google' }
+        });
+        vi.stubGlobal('location', { href: 'https://example.test/contact', search: '' });
+        captureAcquisitionTracking();
+
+        let body: Record<string, unknown> = {};
+        await submitWithRetry({
+          formId: 'form-consent',
+          input: { data: { name: 'Ada' } },
+          baseUrl: 'https://api.example.test',
+          acquisitionTracking: true,
+          storage: createMemoryStorage(),
+          fetchImpl: async (input, init) => {
+            body = (await new Request(input, init).json()) as Record<string, unknown>;
+            return new Response('{"record":{"id":"submission-1"}}', { status: 200 });
+          }
+        });
+
+        expect(body.tracking).toMatchObject({
+          utm_source: 'google',
+          page_url: 'https://example.test/landing?utm_source=google',
+          referrer: 'https://google.test/'
+        });
+      } finally {
+        configureAcquisitionTracking();
+      }
+    });
+
+    it('sends explicit tracking values whatever the setting', async () => {
+      let body: Record<string, unknown> = {};
+      await submitWithRetry({
+        formId: 'form-consent',
+        input: { data: { name: 'Ada' }, tracking: { gclid: 'click-1' } },
+        baseUrl: 'https://api.example.test',
+        acquisitionTracking: false,
+        storage: createMemoryStorage(),
+        fetchImpl: async (input, init) => {
+          body = (await new Request(input, init).json()) as Record<string, unknown>;
+          return new Response('{"record":{"id":"submission-1"}}', { status: 200 });
+        }
+      });
+
+      expect(body.tracking).toEqual({ gclid: 'click-1' });
+    });
+  });
+
   it('retries the same serialized request and key, then clears the attempt on success', async () => {
     const storage = createMemoryStorage();
     const requests: Request[] = [];
@@ -78,7 +196,8 @@ describe('@moreflow/forms', () => {
       input: { data: { name: 'Ada' } },
       storage,
       baseUrl: 'https://example.test',
-      tracking: { gclid: 'click-1' },
+      acquisitionTracking: true,
+      trackingCapture: () => ({ gclid: 'click-1' }),
       fetchImpl: async (input, init) => {
         requests.push(new Request(input, init));
         calls += 1;
@@ -106,6 +225,36 @@ describe('@moreflow/forms', () => {
     ).toBe(null);
   });
 
+  it('sends the locale the visitor saw, German by default, and rotates the key when it changes', async () => {
+    const storage = createMemoryStorage();
+    const bodies: Record<string, unknown>[] = [];
+    const keys: (string | null)[] = [];
+    const submit = (locale?: 'de' | 'en') =>
+      submitWithRetry({
+        formId: 'form-1',
+        input: { data: { email: 'ada@example.com', marketing: true }, ...(locale ? { locale } : {}) },
+        storage,
+        baseUrl: 'https://example.test',
+        fetchImpl: async (input, init) => {
+          const request = new Request(input, init);
+          keys.push(request.headers.get('Idempotency-Key'));
+          bodies.push((await request.json()) as Record<string, unknown>);
+          // Fail without retrying so the stored attempt survives for the next call.
+          return new Response(JSON.stringify({ error: { code: 'CONFLICT' } }), { status: 409 });
+        },
+        maxAttempts: 1
+      }).catch((error: unknown) => error);
+
+    await submit();
+    await submit('de');
+    await submit('en');
+
+    expect(bodies.map((body) => body.locale)).toEqual(['de', 'de', 'en']);
+    // An explicit 'de' is the same submission as the default; 'en' showed different text.
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
   it('sends token and custom headers on every attempt', async () => {
     const requests: Request[] = [];
     let calls = 0;
@@ -113,7 +262,6 @@ describe('@moreflow/forms', () => {
     await submitWithRetry({
       formId: 'form-auth-retry',
       input: { data: { name: 'Ada' } },
-      tracking: {},
       token: 'mfo_first-token',
       headers: { 'X-Embed-Source': 'landing-page' },
       storage: createMemoryStorage(),
@@ -153,7 +301,6 @@ describe('@moreflow/forms', () => {
       submitWithRetry({
         formId: 'form-invalid-headers',
         input: { data: { name: 'Ada' } },
-        tracking: {},
         maxAttempts: 3,
         fetchImpl,
         sleep,
@@ -255,7 +402,8 @@ describe('@moreflow/forms', () => {
       submitWithRetry({
         formId: 'form-1',
         input: { data: { name: 'Ada' }, consent: { marketing: true } },
-        tracking: { gclid: 'click-1', referrer: 'https://first.test/' },
+        acquisitionTracking: true,
+        trackingCapture: () => ({ gclid: 'click-1', referrer: 'https://first.test/' }),
         token: 'mfo_first-token',
         storage,
         baseUrl: 'https://example.test',
@@ -267,7 +415,8 @@ describe('@moreflow/forms', () => {
     const result = await submitWithRetry({
       formId: 'form-1',
       input: { data: { name: 'Ada' }, consent: { marketing: true } },
-      tracking: { gclid: 'click-2', referrer: 'https://second.test/' },
+      acquisitionTracking: true,
+      trackingCapture: () => ({ gclid: 'click-2', referrer: 'https://second.test/' }),
       token: 'mfo_replay-token',
       storage,
       baseUrl: 'https://example.test',
@@ -298,7 +447,6 @@ describe('@moreflow/forms', () => {
         submitWithRetry({
           formId: 'form-1',
           input: { data: { name: 'Ada' }, consent: { marketing } },
-          tracking: {},
           storage,
           maxAttempts: 1,
           fetchImpl
@@ -310,6 +458,8 @@ describe('@moreflow/forms', () => {
   });
 
   it('survives a caller-provided storage that throws and keeps diverted values readable', async () => {
+    // The diverted values only outlive a call in a browser, where `window` exists.
+    vi.stubGlobal('window', {});
     let reads = 0;
     const brokenStorage = {
       getItem: () => {
@@ -344,7 +494,6 @@ describe('@moreflow/forms', () => {
     const result = await submitWithRetry({
       formId: 'form-broken-storage',
       input: { data: { name: 'Ada' } },
-      tracking: {},
       storage: brokenStorage,
       fetchImpl: async () =>
         new Response(JSON.stringify({ record: { id: 'submission-1' } }), {
@@ -356,6 +505,7 @@ describe('@moreflow/forms', () => {
   });
 
   it('keeps the default in-memory fallback alive across calls in the same session', async () => {
+    vi.stubGlobal('window', {});
     vi.resetModules();
     const fresh = await import('./index');
 
@@ -385,7 +535,6 @@ describe('@moreflow/forms', () => {
     await submitWithRetry({
       formId: 'form-1',
       input: { data: { name: 'Ada' } },
-      tracking: {},
       storage: createMemoryStorage(),
       maxRetryDelayMs: 5000,
       fetchImpl: async () => {
@@ -532,7 +681,7 @@ describe('phone verification helpers', () => {
 
     expect(result).toEqual({ verified: true, phoneNumber: '+491701234567' });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('/v1/forms/form-1/phone-verification');
+    expect(url).toBe('https://api.moreflow.io/v1/forms/form-1/phone-verification');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({
       phoneNumber: '+491701234567',
@@ -575,6 +724,87 @@ describe('phone verification helpers', () => {
     await expect(
       sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567', fetchImpl })
     ).rejects.toMatchObject({ name: 'MoreflowFormError', retryable: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('@moreflow/forms errors', () => {
+  it('retries a 408 like the other Moreflow SDKs', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('', { status: 408 }))
+      .mockResolvedValueOnce(Response.json({ record: { id: 'submission-1' } }));
+
+    const result = await submitWithRetry({
+      formId: 'form-408',
+      input: { data: { name: 'Ada' } },
+      storage: createMemoryStorage(),
+      sleep: async () => {},
+      fetchImpl
+    });
+
+    expect(result.data).toEqual({ record: { id: 'submission-1' } });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('exposes the missing required fields of a VALIDATION_ERROR submission', async () => {
+    const failure = await submitWithRetry({
+      formId: 'form-1',
+      input: { data: {} },
+      storage: createMemoryStorage(),
+      fetchImpl: async () =>
+        Response.json(
+          {
+            error: 'Required form fields must be provided before submitting the form.',
+            message: 'Required form fields must be provided before submitting the form.',
+            code: 'VALIDATION_ERROR',
+            details: { formId: 'form-1', missingFieldIds: ['email', 'privacy'] },
+            recovery: { operation: 'forms.public.get', args: { formId: 'form-1' } }
+          },
+          { status: 400 }
+        )
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      retryable: false,
+      details: { missingFieldIds: ['email', 'privacy'] },
+      recovery: { operation: 'forms.public.get', args: { formId: 'form-1' } }
+    });
+    expect(missingFieldIdsFromError(failure)).toEqual(['email', 'privacy']);
+    expect(missingFieldIdsFromError(new Error('other'))).toEqual([]);
+  });
+
+  it('throws MoreflowFormError instead of a plain Error for missing arguments', async () => {
+    await expect(
+      submitWithRetry({ formId: ' ', input: { data: {} }, fetchImpl: vi.fn() })
+    ).rejects.toMatchObject({
+      name: 'MoreflowFormError',
+      code: 'VALIDATION_ERROR',
+      details: { field: 'formId' }
+    });
+    vi.stubGlobal('fetch', undefined);
+    await expect(
+      sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567' })
+    ).rejects.toMatchObject({ name: 'MoreflowFormError', code: 'FETCH_UNAVAILABLE' });
+  });
+
+  it('reports an aborted submission as ABORTED without retrying', async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      controller.abort();
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    });
+
+    await expect(
+      submitWithRetry({
+        formId: 'form-1',
+        input: { data: { name: 'Ada' } },
+        storage: createMemoryStorage(),
+        signal: controller.signal,
+        fetchImpl
+      })
+    ).rejects.toMatchObject({ name: 'MoreflowFormError', code: 'ABORTED', retryable: false });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

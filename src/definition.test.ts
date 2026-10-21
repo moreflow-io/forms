@@ -9,7 +9,8 @@ import {
   type PublicFormAccountId,
   type PublicFormDefinition,
   partitionFormPages,
-  phoneVerificationRequired
+  phoneVerificationRequired,
+  prepareSubmissionData
 } from './index';
 
 const richThankYou = {
@@ -153,6 +154,67 @@ describe('tracking_consent visibility', () => {
     expect(formInputComponents(definition).map((entry) => entry.id)).toEqual(['tracking', 'email']);
     // The normalized definition keeps every component; only visitor-facing views filter.
     expect(page?.type === 'regular' && page.components).toHaveLength(3);
+  });
+});
+
+describe('marketing_consent visibility', () => {
+  const marketingBody = {
+    id: 'form-1',
+    version: {
+      id: 'version-1',
+      version: 1,
+      pages: [
+        {
+          id: 'page-1',
+          type: 'regular',
+          components: [
+            { id: 'privacy', type: 'privacy_policy', required: true },
+            { id: 'marketing', type: 'marketing_consent', required: true },
+            { id: 'email', type: 'email', required: true }
+          ]
+        }
+      ]
+    }
+  };
+
+  it('shows the checkbox only when the page names a company', () => {
+    expect(isComponentVisibleToVisitors({ type: 'marketing_consent' }, { companyName: 'ACME GmbH' })).toBe(
+      true
+    );
+    expect(isComponentVisibleToVisitors({ type: 'marketing_consent' })).toBe(false);
+    expect(isComponentVisibleToVisitors({ type: 'marketing_consent' }, { companyName: ' \n ' })).toBe(false);
+    // Account-authored checkbox text does not make the marketing box visible: its text names the company.
+    expect(
+      isComponentVisibleToVisitors({ type: 'marketing_consent', checkboxText: 'Ja, gerne.' })
+    ).toBe(false);
+  });
+
+  it('normalizes the box as optional, whatever the persisted flag says', () => {
+    const definition = normalizePublicFormDefinition(marketingBody);
+    const [page] = definition.pages;
+    expect(page?.type === 'regular' && page.components[1]).toMatchObject({
+      id: 'marketing',
+      type: 'marketing_consent',
+      required: false
+    });
+    expect(page?.type === 'regular' && page.components[0]?.required).toBe(true);
+  });
+
+  it('leaves the box out of visitor-facing views without a company name', () => {
+    const definition = normalizePublicFormDefinition(marketingBody);
+    expect(partitionFormPages(definition).steps[0]?.components.map((entry) => entry.id)).toEqual([
+      'privacy',
+      'email'
+    ]);
+    expect(formInputComponents(definition).map((entry) => entry.id)).toEqual(['privacy', 'email']);
+    expect(
+      partitionFormPages(definition, { companyName: 'ACME GmbH' }).steps[0]?.components.map(
+        (entry) => entry.id
+      )
+    ).toEqual(['privacy', 'marketing', 'email']);
+    expect(
+      formInputComponents(definition, { companyName: 'ACME GmbH' }).map((entry) => entry.id)
+    ).toEqual(['privacy', 'marketing', 'email']);
   });
 });
 
@@ -433,5 +495,76 @@ describe('getPublicForm', () => {
       name: 'MoreflowFormError',
       retryable: true
     });
+  });
+});
+
+describe('server company name, language and typed settings', () => {
+  const v1Body = {
+    id: 'form-1',
+    honeypotField: 'website',
+    spamProtection: { turnstile: { siteKey: '', mode: 'off' } },
+    companyName: ' MPU West ',
+    language: 'en',
+    version: {
+      id: 'version-1',
+      formId: 'form-1',
+      settings: {
+        submitButtonText: 'Jetzt anfragen',
+        continueButtonText: 7,
+        thank_you_page_url: ' https://example.test/danke ',
+        primaryColor: '#123456'
+      },
+      pages: [
+        {
+          id: 'page-1',
+          type: 'regular',
+          components: [
+            { id: 'email', type: 'email', required: true },
+            { id: 'marketing', type: 'marketing_consent' }
+          ]
+        }
+      ]
+    }
+  };
+
+  it('exposes companyName, language and the typed settings keys', () => {
+    const definition = normalizePublicFormDefinition(v1Body);
+
+    expect(definition.companyName).toBe('MPU West');
+    expect(definition.language).toBe('en');
+    expect(definition.settings).toEqual({
+      submitButtonText: 'Jetzt anfragen',
+      thank_you_page_url: ' https://example.test/danke ',
+      thankYouPageUrl: 'https://example.test/danke',
+      primaryColor: '#123456'
+    });
+    expectTypeOf(definition.settings.submitButtonText).toEqualTypeOf<string | undefined>();
+  });
+
+  it('ignores an unknown language and a blank company name', () => {
+    const definition = normalizePublicFormDefinition({ ...v1Body, companyName: '  ', language: 'fr' });
+
+    expect(definition.companyName).toBeUndefined();
+    expect(definition.language).toBeUndefined();
+  });
+
+  it('defaults the helpers company name to the definition, so the marketing box stays', () => {
+    const definition = normalizePublicFormDefinition(v1Body);
+    const withoutName = normalizePublicFormDefinition({ ...v1Body, companyName: null });
+
+    expect(partitionFormPages(definition).steps[0]?.components.map((c) => c.id)).toEqual([
+      'email',
+      'marketing'
+    ]);
+    expect(formInputComponents(withoutName).map((c) => c.id)).toEqual(['email']);
+    expect(prepareSubmissionData(definition, { email: 'a@b.test', marketing: true })).toEqual({
+      email: 'a@b.test',
+      marketing: true
+    });
+    expect(prepareSubmissionData(withoutName, { email: 'a@b.test', marketing: true })).toEqual({
+      email: 'a@b.test'
+    });
+    // An explicit name still wins over the server's.
+    expect(partitionFormPages(withoutName, { companyName: 'Other' }).steps[0]?.components).toHaveLength(2);
   });
 });

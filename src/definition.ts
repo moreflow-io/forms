@@ -1,11 +1,15 @@
+import { MoreflowFormError } from './error';
 import {
-  MoreflowFormError,
-  readResponseBody,
-  retryableStatus,
-  serverErrorCode,
-  serverErrorMessage
-} from './error';
-import { isRecord, type JsonObject } from './json';
+  abortedErrorInit,
+  fetchUnavailableInit,
+  networkErrorInit,
+  operationErrorInit,
+  validationErrorInit
+} from './internal/errors';
+import { readResponseBody, resolveBaseUrl, resolveFetch } from './internal/http';
+import { isRecord } from './internal/values';
+import type { JsonObject } from './json';
+import type { FormMessageLanguage } from './messages';
 
 export interface PublicFormOption {
   id?: string | undefined;
@@ -90,10 +94,41 @@ export type PublicFormAccountId = string & {
   readonly __domainId?: 'AccountId' | undefined;
 };
 
+/**
+ * The published version's settings. The typed keys are read for you; every
+ * other persisted setting passes through unchanged.
+ */
+export type PublicFormSettings = JsonObject & {
+  /** Submit button text or a `forms.settings.*` message key — resolve with `resolveFormMessage`. */
+  submitButtonText?: string;
+  /** Continue button text or a `forms.*` message key. */
+  continueButtonText?: string;
+  /**
+   * Where to send the visitor after a successful submission instead of the
+   * thank-you page (read from `thankYouPageUrl` or the legacy
+   * `thank_you_page_url`). Unvalidated; `createFormSession` only follows
+   * absolute http(s) URLs.
+   */
+  thankYouPageUrl?: string;
+};
+
 export interface PublicFormDefinition {
   formId: string;
   accountId?: PublicFormAccountId | undefined;
   name?: string | undefined;
+  /**
+   * The tenant brand's display name (the company profile name in Moreflow)
+   * that consent copy names. Moreflow rebuilds the `marketing_consent` text
+   * from exactly this name to evidence the consent, and the helpers default
+   * their `companyName` to it. Undefined when the tenant has none (the
+   * marketing box then stays hidden) or the server predates the field.
+   */
+  companyName?: string | undefined;
+  /**
+   * The account's default form language. `createFormSession` renders and
+   * submits in it unless you pass another `language`.
+   */
+  language?: FormMessageLanguage | undefined;
   /** Render an off-screen text input with this name and submit its value as `input.spam.honeypot`. */
   honeypotField: string;
   /** Discovery configuration for optional Turnstile mounting in a custom embed. */
@@ -101,7 +136,7 @@ export interface PublicFormDefinition {
   versionId?: string | undefined;
   versionNumber?: number | undefined;
   publishedAt?: string | undefined;
-  settings: JsonObject;
+  settings: PublicFormSettings;
   pages: PublicFormPage[];
   /** Pass unchanged as `input.fieldMatching` to `submitWithRetry`. */
   fieldMatching: PublicFormFieldMatch[];
@@ -120,26 +155,57 @@ export const PRESENTATIONAL_COMPONENT_TYPES: ReadonlySet<string> = new Set([
 export const PHONE_COMPONENT_TYPES: ReadonlySet<string> = new Set(['phone', 'phone_number']);
 
 /**
- * Consent checkboxes. `tracking_consent` is optional by design: it never
- * blocks submission, and its text is account-authored (see
- * {@link isComponentVisibleToVisitors}).
+ * Consent checkboxes. `tracking_consent` and `marketing_consent` are optional
+ * by design (see {@link OPTIONAL_CONSENT_COMPONENT_TYPES}); the privacy
+ * checkboxes acknowledge the privacy notice and may be required.
  */
 export const CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
   'privacy_policy',
   'privacy_checkbox',
-  'tracking_consent'
+  'tracking_consent',
+  'marketing_consent'
 ]);
+
+/**
+ * Consent checkboxes that are always optional and unticked: they never block
+ * submission, whatever a definition's `required` flag says, and only a box the
+ * visitor ticks grants anything. `tracking_consent` grants email tracking
+ * consent; `marketing_consent` is the only form field that grants marketing
+ * email consent.
+ */
+export const OPTIONAL_CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
+  'tracking_consent',
+  'marketing_consent'
+]);
+
+export interface VisitorVisibilityOptions {
+  /**
+   * The company name your page shows in its consent copy: the tenant brand's
+   * display name (the company profile name in Moreflow). A
+   * `marketing_consent` checkbox stays hidden without it. Helpers that take a
+   * definition default it to `definition.companyName`.
+   */
+  companyName?: string | undefined;
+}
 
 /**
  * Whether a visitor should see and fill in a component. A `tracking_consent`
  * checkbox is hidden while its account-authored `checkboxText` is empty or
- * whitespace; Moreflow never supplies that legal wording itself. Every other
- * component is always visible.
+ * whitespace; Moreflow never supplies that legal wording itself. A
+ * `marketing_consent` checkbox is hidden unless `options.companyName` is a
+ * non-blank name, because its text names the company (see
+ * `marketingConsentText`). Every other component is always visible.
  */
-export function isComponentVisibleToVisitors(component: {
-  type: string;
-  checkboxText?: string | undefined;
-}): boolean {
+export function isComponentVisibleToVisitors(
+  component: {
+    type: string;
+    checkboxText?: string | undefined;
+  },
+  options: VisitorVisibilityOptions = {}
+): boolean {
+  if (component.type === 'marketing_consent') {
+    return typeof options.companyName === 'string' && options.companyName.trim().length > 0;
+  }
   if (component.type !== 'tracking_consent') return true;
   return typeof component.checkboxText === 'string' && component.checkboxText.trim().length > 0;
 }
@@ -177,9 +243,10 @@ function normalizeComponent(value: unknown): PublicFormComponent | null {
     type,
     label: stringValue(value.label),
     placeholder: stringValue(value.placeholder),
-    // tracking_consent is always optional, whatever the persisted flag says.
-    required:
-      type === 'tracking_consent' ? false : Boolean(value.required ?? value.isRequired),
+    // Optional consent boxes are never required, whatever the persisted flag says.
+    required: OPTIONAL_CONSENT_COMPONENT_TYPES.has(type)
+      ? false
+      : Boolean(value.required ?? value.isRequired),
     showLabel: typeof value.showLabel === 'boolean' ? value.showLabel : undefined,
     showPlaceholder: typeof value.showPlaceholder === 'boolean' ? value.showPlaceholder : undefined,
     ...(options ? { options } : {}),
@@ -268,6 +335,21 @@ function hasThankYouContentProps(candidate: Record<string, unknown>): boolean {
   );
 }
 
+function settingsFrom(value: unknown): PublicFormSettings {
+  const settings: PublicFormSettings = isRecord(value) ? { ...jsonObject(value) } : {};
+  for (const key of ['submitButtonText', 'continueButtonText'] as const) {
+    if (typeof settings[key] !== 'string') delete settings[key];
+  }
+  const thankYouPageUrl = stringValue(settings.thankYouPageUrl) ?? stringValue(settings.thank_you_page_url);
+  if (thankYouPageUrl) settings.thankYouPageUrl = thankYouPageUrl.trim();
+  else delete settings.thankYouPageUrl;
+  return settings;
+}
+
+function languageFrom(value: unknown): FormMessageLanguage | undefined {
+  return value === 'de' || value === 'en' ? value : undefined;
+}
+
 function spamProtectionFrom(value: unknown): PublicFormSpamProtection {
   const source = isRecord(value) ? value : {};
   const turnstile = isRecord(source.turnstile) ? source.turnstile : {};
@@ -350,12 +432,14 @@ export function normalizePublicFormDefinition(
     formId,
     accountId,
     name: stringValue(root.name) ?? stringValue(recordData?.name) ?? stringValue(selected.name),
+    companyName: stringValue(root.companyName)?.trim(),
+    language: languageFrom(root.language),
     honeypotField: stringValue(root.honeypotField) ?? 'website',
     spamProtection: spamProtectionFrom(root.spamProtection),
     versionId: stringValue(selected.id) === formId ? undefined : stringValue(selected.id),
     versionNumber,
     publishedAt: stringValue(selected.publishedAt),
-    settings: isRecord(selected.settings) ? jsonObject(selected.settings) : {},
+    settings: settingsFrom(selected.settings),
     pages,
     fieldMatching: fieldMatchingFrom(selected, root, recordData, record)
   };
@@ -363,7 +447,10 @@ export function normalizePublicFormDefinition(
 
 export interface GetPublicFormOptions {
   formId: string;
-  /** Defaults to `''`, i.e. the page's own origin behind a same-origin proxy. */
+  /**
+   * The Moreflow API origin. Defaults to `https://api.moreflow.io`; pass `''`
+   * to call your page's own origin behind a same-origin proxy.
+   */
   baseUrl?: string | undefined;
   /** Sends `Authorization: Bearer <token>` with the request. */
   token?: string | undefined;
@@ -380,13 +467,15 @@ export interface GetPublicFormOptions {
  * (`FORM_NOT_FOUND`, `FORM_RETIRED`, `FORM_UNPUBLISHED`, ...).
  */
 export async function getPublicForm(options: GetPublicFormOptions): Promise<PublicFormDefinition> {
-  if (!options.formId.trim()) throw new Error('formId is required.');
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
-  if (!fetchImpl) throw new Error('A fetch implementation is required to load a Moreflow form.');
+  if (!options.formId.trim()) {
+    throw new MoreflowFormError(validationErrorInit('formId', 'formId is required.'));
+  }
+  const fetchImpl = resolveFetch(options.fetchImpl);
+  if (!fetchImpl) throw new MoreflowFormError(fetchUnavailableInit('@moreflow/forms'));
 
   const headers = new Headers(options.headers);
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
-  const url = `${(options.baseUrl ?? '').replace(/\/$/u, '')}/v1/forms/${encodeURIComponent(options.formId)}`;
+  const url = `${resolveBaseUrl({ baseUrl: options.baseUrl })}/v1/forms/${encodeURIComponent(options.formId)}`;
 
   let response: Response;
   try {
@@ -396,25 +485,25 @@ export async function getPublicForm(options: GetPublicFormOptions): Promise<Publ
       ...(options.signal ? { signal: options.signal } : {})
     });
   } catch (error) {
-    if (options.signal?.aborted) throw error;
-    throw new MoreflowFormError({
-      message: 'The Moreflow form could not be loaded before a response was received.',
-      retryable: true,
-      cause: error
-    });
+    if (options.signal?.aborted) {
+      throw new MoreflowFormError(
+        abortedErrorInit('Loading the Moreflow form was aborted.', options.signal)
+      );
+    }
+    throw new MoreflowFormError(
+      networkErrorInit('The Moreflow form could not be loaded before a response was received.', error)
+    );
   }
 
   const body = await readResponseBody(response);
   if (!response.ok) {
-    throw new MoreflowFormError({
-      message:
-        serverErrorMessage(body) ??
-        `The Moreflow form could not be loaded (HTTP ${response.status}).`,
-      status: response.status,
-      code: serverErrorCode(body),
-      retryable: retryableStatus(response.status),
-      responseBody: body
-    });
+    throw new MoreflowFormError(
+      operationErrorInit({
+        responseBody: body,
+        status: response.status,
+        fallbackMessage: 'The Moreflow form could not be loaded'
+      })
+    );
   }
   return normalizePublicFormDefinition(body, { formId: options.formId });
 }
@@ -429,23 +518,46 @@ export interface PartitionedFormPages {
 /**
  * Splits the form into visitor-facing wizard steps and the thank-you page.
  * Components hidden from visitors (see {@link isComponentVisibleToVisitors})
- * are left out of `steps`, so embeds render only what they should show.
+ * are left out of `steps`, so embeds render only what they should show. Pass
+ * another `companyName` than `definition.companyName` only if your page shows
+ * another name (the consent evidence then no longer matches).
  */
-export function partitionFormPages(definition: PublicFormDefinition): PartitionedFormPages {
+export function partitionFormPages(
+  definition: PublicFormDefinition,
+  options: VisitorVisibilityOptions = {}
+): PartitionedFormPages {
+  options = withDefinitionCompanyName(definition, options);
   return {
     steps: definition.pages
       .filter((page): page is PublicFormRegularPage => page.type === 'regular')
       .map((page) => ({
         ...page,
-        components: page.components.filter((component) => isComponentVisibleToVisitors(component))
+        components: page.components.filter((component) =>
+          isComponentVisibleToVisitors(component, options)
+        )
       })),
     thankYou: definition.pages.find((page) => page.type === 'thank_you')
   };
 }
 
+/**
+ * The options with `companyName` defaulted to the definition's, so the
+ * marketing box follows the server's brand name unless the caller names one.
+ */
+export function withDefinitionCompanyName<T extends VisitorVisibilityOptions>(
+  definition: Pick<PublicFormDefinition, 'companyName'>,
+  options: T
+): T {
+  if (options.companyName !== undefined || !definition.companyName) return options;
+  return { ...options, companyName: definition.companyName };
+}
+
 /** All visible input-collecting components across the form's regular pages. */
-export function formInputComponents(definition: PublicFormDefinition): PublicFormComponent[] {
-  return partitionFormPages(definition).steps.flatMap((page) =>
+export function formInputComponents(
+  definition: PublicFormDefinition,
+  options: VisitorVisibilityOptions = {}
+): PublicFormComponent[] {
+  return partitionFormPages(definition, options).steps.flatMap((page) =>
     page.components.filter((component) => !PRESENTATIONAL_COMPONENT_TYPES.has(component.type))
   );
 }

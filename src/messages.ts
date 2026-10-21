@@ -33,6 +33,7 @@ const catalogDe: Record<string, string> = {
   forms_defaults_image_label: 'Bild',
   forms_defaults_last_name_label: 'Nachname',
   forms_defaults_last_name_placeholder: 'Nachname eingeben',
+  forms_defaults_marketing_consent_label: 'Marketing-Einwilligung',
   forms_defaults_number_label: 'Zahl',
   forms_defaults_number_placeholder: 'z.B. 42',
   forms_defaults_phone_number_label: 'Telefonnummer',
@@ -43,10 +44,11 @@ const catalogDe: Record<string, string> = {
   forms_defaults_submit_button_text: 'Absenden',
   forms_defaults_text_label: 'Textfeld',
   forms_defaults_text_placeholder: 'Text eingeben',
+  forms_defaults_tracking_consent_label: 'E-Mail-Tracking-Einwilligung',
   forms_defaults_video_label: 'Video',
   forms_privacy_and: 'und',
   forms_privacy_consent_label:
-    'Ich bin damit einverstanden, dass die {companyName} meine persönlichen Daten zur Verwaltung und zur Bereitstellung der von mir angeforderten Dienstleistungen speichert. Darüber hinaus darf ich mit weiteren Angeboten kontaktiert werden.',
+    'Ich bin damit einverstanden, dass die {companyName} meine persönlichen Daten zur Verwaltung und zur Bereitstellung der von mir angeforderten Dienstleistungen speichert.',
   forms_privacy_i_agree: 'Ich stimme zu.',
   forms_privacy_i_have_read_and_agree: 'Ich habe die',
   forms_privacy_imprint: 'Impressum',
@@ -71,6 +73,7 @@ const catalogDe: Record<string, string> = {
   forms_types_iframe: 'Eingebetteter Inhalt',
   forms_types_image: 'Bild',
   forms_types_last_name: 'Nachname',
+  forms_types_marketing_consent: 'Marketing-Einwilligung (optional)',
   forms_types_multiple_choice: 'Mehrfachauswahl',
   forms_types_number: 'Zahl',
   forms_types_phone_number: 'Telefon',
@@ -78,7 +81,10 @@ const catalogDe: Record<string, string> = {
   forms_types_separator: 'Trennlinie',
   forms_types_spacing: 'Abstand',
   forms_types_textarea: 'Textbereich',
-  forms_types_video: 'Video'
+  forms_types_tracking_consent: 'E-Mail-Tracking-Einwilligung',
+  forms_types_video: 'Video',
+  public_marketing_consent_label:
+    'Ich möchte Neuigkeiten und Angebote von {companyName} per E-Mail erhalten. Diese Einwilligung kann ich jederzeit widerrufen.'
 };
 
 const catalogEn: Record<string, string> = {
@@ -105,6 +111,7 @@ const catalogEn: Record<string, string> = {
   forms_defaults_image_label: 'Image',
   forms_defaults_last_name_label: 'Last name',
   forms_defaults_last_name_placeholder: 'Enter last name',
+  forms_defaults_marketing_consent_label: 'Marketing consent',
   forms_defaults_number_label: 'Number',
   forms_defaults_number_placeholder: 'e.g. 42',
   forms_defaults_phone_number_label: 'Phone number',
@@ -115,10 +122,11 @@ const catalogEn: Record<string, string> = {
   forms_defaults_submit_button_text: 'Submit',
   forms_defaults_text_label: 'Text field',
   forms_defaults_text_placeholder: 'Enter text',
+  forms_defaults_tracking_consent_label: 'Email tracking consent',
   forms_defaults_video_label: 'Video',
   forms_privacy_and: 'and',
   forms_privacy_consent_label:
-    'I agree that {companyName} may store my personal data for managing and providing the services I have requested. Furthermore, I may be contacted with additional offers.',
+    'I agree that {companyName} may store my personal data for managing and providing the services I have requested.',
   forms_privacy_i_agree: 'I agree.',
   forms_privacy_i_have_read_and_agree: 'I have read the',
   forms_privacy_imprint: 'Imprint',
@@ -143,6 +151,7 @@ const catalogEn: Record<string, string> = {
   forms_types_iframe: 'Embedded content',
   forms_types_image: 'Image',
   forms_types_last_name: 'Last name',
+  forms_types_marketing_consent: 'Marketing consent (optional)',
   forms_types_multiple_choice: 'Multiple choice',
   forms_types_number: 'Number',
   forms_types_phone_number: 'Phone',
@@ -150,10 +159,17 @@ const catalogEn: Record<string, string> = {
   forms_types_separator: 'Separator',
   forms_types_spacing: 'Spacing',
   forms_types_textarea: 'Text area',
-  forms_types_video: 'Video'
+  forms_types_tracking_consent: 'Email tracking consent',
+  forms_types_video: 'Video',
+  public_marketing_consent_label:
+    'I would like to receive news and offers from {companyName} by email. I can withdraw this consent at any time.'
 };
 
-/** Default form copy keyed by normalized message id (see {@link formMessageId}). */
+/**
+ * Default form copy keyed by normalized message id (see {@link formMessageId}).
+ * `public_marketing_consent_label` is not a persisted `forms.*` key; render it
+ * with {@link marketingConsentText}.
+ */
 export const formMessageCatalogs: Readonly<
   Record<FormMessageLanguage, Readonly<Record<string, string>>>
 > = {
@@ -182,18 +198,57 @@ export function formMessageId(key: string): string {
     .toLowerCase();
 }
 
+/** How German copy addresses the visitor: `'formal'` ("Sie", the default) or `'informal'` ("du"). */
+export type FormFormality = 'formal' | 'informal';
+
+/**
+ * Your own copy, replacing the package defaults for the language you render
+ * in. Every text helper and `createFormSession` read the same map.
+ */
+export interface FormMessageOverrides {
+  /**
+   * Text for persisted `forms.*` message keys, keyed by the dotted key
+   * (`forms.settings.submitButton`) or its message id
+   * (`forms_settings_submit_button`).
+   */
+  forms?: Readonly<Record<string, string>> | undefined;
+  /** Text per validation code, e.g. `{ CONSENT_REQUIRED: 'Bitte stimme zu.' }`. */
+  validation?: Readonly<Partial<Record<string, string>>> | undefined;
+  /** Text per error code (`FormErrorCode`), e.g. `{ FORM_NOT_FOUND: '...' }`. */
+  errors?: Readonly<Partial<Record<string, string>>> | undefined;
+}
+
+/** The options every localized text helper accepts. */
+export interface FormCopyOptions {
+  /** Defaults to `'de'`; pass the language you render the form in. */
+  language?: FormMessageLanguage | undefined;
+  /** German only; defaults to `'formal'` ("Sie"). */
+  formality?: FormFormality | undefined;
+  messages?: FormMessageOverrides | undefined;
+}
+
 export interface ResolveFormMessageOptions {
   /** Target language; defaults to `'de'` (Moreflow's primary form language). */
   language?: FormMessageLanguage | undefined;
   /** Values for `{placeholder}` tokens, e.g. `{ companyName: 'ACME GmbH' }`. */
   params?: Record<string, string | number> | undefined;
+  /** `messages.forms` replaces the default copy for a key. */
+  messages?: FormMessageOverrides | undefined;
+}
+
+function interpolate(message: string, params: Record<string, string | number> | undefined) {
+  if (!params) return message;
+  return message.replace(/\{(\w+)\}/gu, (token, name: string) => {
+    const param = params[name];
+    return param === undefined ? token : String(param);
+  });
 }
 
 /**
- * Resolves a persisted label/placeholder value: message keys become the
- * default copy for the requested language (falling back to the other language
- * before giving up), literal text passes through unchanged. Safe to call on
- * every label a form definition provides.
+ * Resolves a persisted label/placeholder value: message keys become your
+ * `messages.forms` text or the default copy for the requested language
+ * (falling back to the other language before giving up), literal text passes
+ * through unchanged. Safe to call on every label a form definition provides.
  */
 export function resolveFormMessage(
   value: string | null | undefined,
@@ -204,12 +259,37 @@ export function resolveFormMessage(
 
   const language = options.language ?? 'de';
   const id = formMessageId(value);
+  const override = options.messages?.forms?.[value] ?? options.messages?.forms?.[id];
+  if (override !== undefined) return interpolate(override, options.params);
   const fallbackLanguage: FormMessageLanguage = language === 'de' ? 'en' : 'de';
   const message = formMessageCatalogs[language][id] ?? formMessageCatalogs[fallbackLanguage][id];
   if (message === undefined) return value;
-  if (!options.params) return message;
-  return message.replace(/\{(\w+)\}/gu, (token, name: string) => {
-    const param = options.params?.[name];
-    return param === undefined ? token : String(param);
-  });
+  return interpolate(message, options.params);
+}
+
+export interface MarketingConsentTextOptions {
+  /**
+   * The company name your page shows: the tenant brand's display name (the
+   * company profile name in Moreflow), exactly as Moreflow's hosted form
+   * shows it, because Moreflow rebuilds this text from that name to evidence
+   * the consent.
+   */
+  companyName: string | null | undefined;
+  /** Defaults to `'de'`; submit the same value as `input.locale`. */
+  language?: FormMessageLanguage | undefined;
+}
+
+/**
+ * The text of an optional `marketing_consent` checkbox: Moreflow's marketing
+ * consent wording naming the company, in the visitor's language. Returns
+ * `undefined` without a non-blank company name; the box must then stay hidden
+ * (see `isComponentVisibleToVisitors`). Render the box unticked and send the
+ * same `language` as `input.locale`, so the consent evidence Moreflow records
+ * hashes the exact text the visitor saw.
+ */
+export function marketingConsentText(options: MarketingConsentTextOptions): string | undefined {
+  const companyName = options.companyName?.trim();
+  if (!companyName) return undefined;
+  const template = formMessageCatalogs[options.language ?? 'de'].public_marketing_consent_label;
+  return template?.replace('{companyName}', () => companyName);
 }

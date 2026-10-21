@@ -5,6 +5,7 @@ import {
   prepareSubmissionData,
   validateComponentValue,
   validateFormValues,
+  validationMessage,
   type PublicFormComponent
 } from './index';
 
@@ -68,6 +69,22 @@ describe('validateComponentValue', () => {
     expect(
       validateComponentValue(component({ type: 'tracking_consent', required: true }), false)
     ).toBeNull();
+  });
+
+  it('never reports marketing_consent as CONSENT_REQUIRED, even when a definition marks it required', () => {
+    const marketing = component({ type: 'marketing_consent', required: true });
+    const options = { companyName: 'ACME GmbH' };
+    expect(validateComponentValue(marketing, false, options)).toBeNull();
+    expect(validateComponentValue(marketing, undefined, options)).toBeNull();
+    expect(validateComponentValue(marketing, true, options)).toBeNull();
+    // Without a company name the box is hidden, so it is skipped entirely.
+    expect(validateComponentValue(marketing, false)).toBeNull();
+  });
+
+  it('still requires a required privacy_policy acknowledgement', () => {
+    expect(
+      validateComponentValue(component({ type: 'privacy_policy', required: true }), false)
+    ).toMatchObject({ code: 'CONSENT_REQUIRED' });
   });
 
   it('requires the street, postal code, and city of a required address', () => {
@@ -187,5 +204,93 @@ describe('prepareSubmissionData', () => {
     );
     expect(isComponentVisibleToVisitors({ type: 'tracking_consent', checkboxText: '' })).toBe(false);
     expect(prepareSubmissionData(hiddenDefinition, { tracking: true })).toEqual({});
+  });
+
+  describe('marketing_consent', () => {
+    const marketingDefinition = normalizePublicFormDefinition(
+      {
+        id: 'form-4',
+        version: {
+          id: 'version-4',
+          version: 1,
+          pages: [
+            {
+              id: 'page-1',
+              type: 'regular',
+              components: [
+                { id: 'email', type: 'email', required: true },
+                { id: 'privacy', type: 'privacy_policy', required: true },
+                { id: 'marketing', type: 'marketing_consent', required: true }
+              ]
+            }
+          ]
+        }
+      },
+      { formId: 'form-4' }
+    );
+    const options = { companyName: 'ACME GmbH' };
+
+    it('submits a ticked box as true and an unticked one as false when the page names a company', () => {
+      expect(
+        prepareSubmissionData(
+          marketingDefinition,
+          { email: 'ada@example.com', privacy: true, marketing: true },
+          options
+        )
+      ).toEqual({ email: 'ada@example.com', privacy: true, marketing: true });
+      expect(
+        prepareSubmissionData(
+          marketingDefinition,
+          { email: 'ada@example.com', privacy: true, marketing: false },
+          options
+        )
+      ).toEqual({ email: 'ada@example.com', privacy: true, marketing: false });
+    });
+
+    it('drops the value of a box hidden for want of a company name', () => {
+      expect(
+        prepareSubmissionData(marketingDefinition, {
+          email: 'ada@example.com',
+          privacy: true,
+          marketing: true
+        })
+      ).toEqual({ email: 'ada@example.com', privacy: true });
+      expect(
+        prepareSubmissionData(
+          marketingDefinition,
+          { email: 'ada@example.com', privacy: true, marketing: true },
+          { companyName: '   ' }
+        )
+      ).toEqual({ email: 'ada@example.com', privacy: true });
+    });
+
+    it('lets the form pass validation with the marketing box unticked', () => {
+      expect(
+        validateFormValues(marketingDefinition, { email: 'ada@example.com', privacy: true }, options)
+      ).toEqual([]);
+      expect(
+        validateFormValues(marketingDefinition, { email: 'ada@example.com' }, options).map(
+          (entry) => entry.componentId
+        )
+      ).toEqual(['privacy']);
+    });
+  });
+});
+
+describe('validationMessage', () => {
+  it('localizes every validation code in German and English', () => {
+    const issue = validateComponentValue(component({ type: 'email', required: true }), 'nope');
+    expect(issue).toMatchObject({ code: 'INVALID_EMAIL', message: 'Please enter a valid email address.' });
+    if (!issue) throw new Error('Expected an issue.');
+    expect(validationMessage(issue)).toBe('Bitte geben Sie eine gültige E-Mail-Adresse ein.');
+    expect(validationMessage(issue, { language: 'en' })).toBe(issue.message);
+
+    const codes = ['REQUIRED', 'INVALID_EMAIL', 'INVALID_PHONE_NUMBER', 'CONSENT_REQUIRED', 'INCOMPLETE_ADDRESS'] as const;
+    for (const code of codes) {
+      expect(validationMessage({ code }, { language: 'de' })).toMatch(/\.$/u);
+      expect(validationMessage({ code }, { language: 'de' })).not.toBe(
+        validationMessage({ code }, { language: 'en' })
+      );
+    }
   });
 });
