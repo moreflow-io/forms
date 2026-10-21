@@ -211,6 +211,21 @@ describe('createFormSession', () => {
     expect(form.getSnapshot()).toMatchObject({ stepIndex: 0, focusComponentId: 'topic' });
   });
 
+  it('blocks submit until a required marketing box is ticked', async () => {
+    const form = session(
+      definitionWith({}, [
+        { id: 'email', type: 'email', required: true },
+        { id: 'marketing', type: 'marketing_consent', required: true }
+      ])
+    );
+    form.setValue('topic', 'MPU');
+    await form.next();
+    form.setValue('email', 'ada@example.com');
+
+    expect(await form.submit()).toBe(false);
+    expect(form.getSnapshot().issues.marketing?.code).toBe('CONSENT_REQUIRED');
+  });
+
   it('waits for a Turnstile token in require mode and resets it after ANTI_SPAM_INVALID', async () => {
     const { calls, fetchImpl } = api({
       'POST /v1/forms/form-1/submissions': () =>

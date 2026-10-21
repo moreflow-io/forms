@@ -1,7 +1,7 @@
 import {
   CONSENT_COMPONENT_TYPES,
+  DECLINABLE_CONSENT_COMPONENT_TYPES,
   isComponentVisibleToVisitors,
-  OPTIONAL_CONSENT_COMPONENT_TYPES,
   PHONE_COMPONENT_TYPES,
   PRESENTATIONAL_COMPONENT_TYPES,
   partitionFormPages,
@@ -77,8 +77,6 @@ export function validateComponentValue(
   if (PRESENTATIONAL_COMPONENT_TYPES.has(component.type)) return null;
   // Hidden components never reach visitors, so they can never block submission.
   if (!isComponentVisibleToVisitors(component, options)) return null;
-  // Tracking and marketing consent are optional by design, even when a definition marks them required.
-  if (OPTIONAL_CONSENT_COMPONENT_TYPES.has(component.type)) return null;
 
   if (CONSENT_COMPONENT_TYPES.has(component.type)) {
     if (component.required && !value) {
@@ -156,7 +154,7 @@ export function prepareSubmissionData(
     if (page.type !== 'regular') continue;
     for (const component of page.components) {
       if (
-        OPTIONAL_CONSENT_COMPONENT_TYPES.has(component.type) &&
+        DECLINABLE_CONSENT_COMPONENT_TYPES.has(component.type) &&
         !isComponentVisibleToVisitors(component, options)
       ) {
         delete data[component.id];

@@ -36,11 +36,11 @@ export type {
 } from './definition';
 export {
   CONSENT_COMPONENT_TYPES,
+  DECLINABLE_CONSENT_COMPONENT_TYPES,
   formInputComponents,
   getPublicForm,
   isComponentVisibleToVisitors,
   normalizePublicFormDefinition,
-  OPTIONAL_CONSENT_COMPONENT_TYPES,
   PHONE_COMPONENT_TYPES,
   PRESENTATIONAL_COMPONENT_TYPES, 
   partitionFormPages,

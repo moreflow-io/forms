@@ -39,7 +39,7 @@ The other public SDKs, the agent plugins, and the HTTP API are listed in the
 For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler, load the browser build before the script that uses it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.8.0/dist/browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.0/dist/browser.js"></script>
 <script>
   const forms = window.MoreflowForms;
 
@@ -809,11 +809,11 @@ Presentational components (`heading`, `separator`, `spacing`, `image`, `video`, 
 
 ### Tracking consent (`tracking_consent`)
 
-A `tracking_consent` component is an optional checkbox that records the visitor's consent to email tracking. It never blocks submission, even when a definition marks it required, and it is never reported as `CONSENT_REQUIRED`. Its consent text is written by the account in the component's `checkboxText`; Moreflow supplies no wording. While that text is empty or whitespace the component is hidden: `partitionFormPages` and `formInputComponents` leave it out, and `prepareSubmissionData` drops any value for it. Use `isComponentVisibleToVisitors(component)` to apply the same rule yourself. A checked box submits `true` under the component id, and the submission records an email tracking consent grant for the linked client.
+A `tracking_consent` component is a checkbox that records the visitor's consent to email tracking. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. Its consent text is written by the account in the component's `checkboxText`; Moreflow supplies no wording. While that text is empty or whitespace the component is hidden: `partitionFormPages` and `formInputComponents` leave it out, and `prepareSubmissionData` drops any value for it. Use `isComponentVisibleToVisitors(component)` to apply the same rule yourself. A checked box submits `true` under the component id, and the submission records an email tracking consent grant for the linked client.
 
 ### Privacy notice and marketing consent (`privacy_policy`, `marketing_consent`)
 
-The `privacy_policy` checkbox acknowledges the privacy notice (`forms.privacy.consentLabel`) and may be required; it records no consent. A `marketing_consent` component is the only form field that records marketing email consent. Render it as an optional, **unticked** checkbox without a separate label, whose text is `marketingConsentText({ companyName, language })`: Moreflow's marketing wording naming your company. It never blocks submission, even when a definition marks it required, and it is never reported as `CONSENT_REQUIRED`.
+The `privacy_policy` checkbox acknowledges the privacy notice (`forms.privacy.consentLabel`) and may be required; it records no consent. A `marketing_consent` component is the only form field that records marketing email consent. Render it as an **unticked** checkbox without a separate label, whose text is `marketingConsentText({ companyName, language })`: Moreflow's marketing wording naming your company. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. A box hidden for want of a company name never blocks.
 
 Its text names the company, so the box is hidden without a company name. The helpers that take a definition default `companyName` to `definition.companyName`, the name Moreflow returns with the form and evidences the consent with, so you normally pass nothing. Otherwise pass the `companyName` your page shows (your company profile name in Moreflow, exactly as the hosted form shows it) to `partitionFormPages`, `formInputComponents`, `validateFormValues`, `validateFormPage`, `validateComponentValue`, and `prepareSubmissionData`. Without it they leave the box out and drop any value for it; `isComponentVisibleToVisitors(component, { companyName })` applies the same rule. A ticked box submits `true` under the component id. Send the `language` you rendered with as `input.locale`: Moreflow rebuilds the marketing text in that locale with your company profile name and records a hash of it with the grant, so the evidence matches the exact text the visitor saw.
 

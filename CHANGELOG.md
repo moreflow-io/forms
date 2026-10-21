@@ -4,6 +4,14 @@ All notable changes to `@moreflow/forms` are documented in this file.
 
 ## Unreleased
 
+## 0.9.0
+
+- **Breaking:** `tracking_consent` and `marketing_consent` boxes keep the `required` flag the account sets instead of normalizing to `required: false`. A required box left unticked is reported as `CONSENT_REQUIRED` by `validateComponentValue`, `validateFormPage`, `validateFormValues` and `createFormSession`, and Moreflow rejects the submission with `VALIDATION_ERROR` naming it in `missingFieldIds`. Optional boxes behave as before, and a box hidden from visitors (tracking consent without `checkboxText`, marketing consent without a company name) never blocks.
+  Upgrade steps:
+  1. Rename `OPTIONAL_CONSENT_COMPONENT_TYPES` to `DECLINABLE_CONSENT_COMPONENT_TYPES`; the set and its use (submit an explicit `false` for an untouched box) are unchanged.
+  2. Show the validation message for consent boxes the same way as for a required `privacy_policy` box.
+- The default `forms.types.marketing_consent` label drops "(optional)".
+
 ## 0.8.0
 
 - **Breaking — requires the next minor release:** replace `trackingOptions` with `trackingCapture` for capture options. Replace session/submission option `tracking: values` with `trackingCapture: () => values`, or `tracking: callback` with `trackingCapture: callback`, and enable `acquisitionTracking`. Capture overrides now always obey the consent gate; explicit payload `input.tracking` remains independent. No old option aliases remain.

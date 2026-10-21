@@ -145,7 +145,7 @@ describe('tracking_consent visibility', () => {
     expect(page?.type === 'regular' && page.components[0]).toMatchObject({
       id: 'tracking',
       checkboxText: 'Ich bin mit Tracking einverstanden.',
-      required: false
+      required: true
     });
     expect(partitionFormPages(definition).steps[0]?.components.map((entry) => entry.id)).toEqual([
       'tracking',
@@ -189,13 +189,13 @@ describe('marketing_consent visibility', () => {
     ).toBe(false);
   });
 
-  it('normalizes the box as optional, whatever the persisted flag says', () => {
+  it('keeps the persisted required flag of the box', () => {
     const definition = normalizePublicFormDefinition(marketingBody);
     const [page] = definition.pages;
     expect(page?.type === 'regular' && page.components[1]).toMatchObject({
       id: 'marketing',
       type: 'marketing_consent',
-      required: false
+      required: true
     });
     expect(page?.type === 'regular' && page.components[0]?.required).toBe(true);
   });

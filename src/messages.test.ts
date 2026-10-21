@@ -64,7 +64,7 @@ describe('form message resolution', () => {
   it('resolves the default labels of the consent field types', () => {
     expect(resolveFormMessage('forms.defaults.marketing_consent.label')).toBe('Marketing-Einwilligung');
     expect(resolveFormMessage('forms.types.marketing_consent', { language: 'en' })).toBe(
-      'Marketing consent (optional)'
+      'Marketing consent'
     );
     expect(resolveFormMessage('forms.defaults.tracking_consent.label', { language: 'en' })).toBe(
       'Email tracking consent'

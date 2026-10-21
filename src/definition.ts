@@ -155,9 +155,10 @@ export const PRESENTATIONAL_COMPONENT_TYPES: ReadonlySet<string> = new Set([
 export const PHONE_COMPONENT_TYPES: ReadonlySet<string> = new Set(['phone', 'phone_number']);
 
 /**
- * Consent checkboxes. `tracking_consent` and `marketing_consent` are optional
- * by design (see {@link OPTIONAL_CONSENT_COMPONENT_TYPES}); the privacy
- * checkboxes acknowledge the privacy notice and may be required.
+ * Consent checkboxes. The privacy checkboxes acknowledge the privacy notice;
+ * `tracking_consent` and `marketing_consent` grant consent (see
+ * {@link DECLINABLE_CONSENT_COMPONENT_TYPES}). Each one blocks submission only
+ * while the account marks it required and the visitor leaves it unticked.
  */
 export const CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
   'privacy_policy',
@@ -167,13 +168,13 @@ export const CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Consent checkboxes that are always optional and unticked: they never block
- * submission, whatever a definition's `required` flag says, and only a box the
- * visitor ticks grants anything. `tracking_consent` grants email tracking
- * consent; `marketing_consent` is the only form field that grants marketing
- * email consent.
+ * Consent checkboxes that grant consent: never pre-ticked, and only a box the
+ * visitor ticks grants anything, so an untouched box submits an explicit
+ * `false`. They are optional unless the account marks them required.
+ * `tracking_consent` grants email tracking consent; `marketing_consent` is the
+ * only form field that grants marketing email consent.
  */
-export const OPTIONAL_CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
+export const DECLINABLE_CONSENT_COMPONENT_TYPES: ReadonlySet<string> = new Set([
   'tracking_consent',
   'marketing_consent'
 ]);
@@ -243,10 +244,7 @@ function normalizeComponent(value: unknown): PublicFormComponent | null {
     type,
     label: stringValue(value.label),
     placeholder: stringValue(value.placeholder),
-    // Optional consent boxes are never required, whatever the persisted flag says.
-    required: OPTIONAL_CONSENT_COMPONENT_TYPES.has(type)
-      ? false
-      : Boolean(value.required ?? value.isRequired),
+    required: Boolean(value.required ?? value.isRequired),
     showLabel: typeof value.showLabel === 'boolean' ? value.showLabel : undefined,
     showPlaceholder: typeof value.showPlaceholder === 'boolean' ? value.showPlaceholder : undefined,
     ...(options ? { options } : {}),

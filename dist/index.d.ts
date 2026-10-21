@@ -3,7 +3,7 @@ import type { AcquisitionTrackingSetting } from './internal/acquisition-tracking
 export { isMoreflowError } from './internal/errors';
 export type { AcquisitionTracking, AcquisitionTrackingConfig, StorageLike, TrackingCaptureOptions, TrackingKey } from '@moreflow/tracking';
 export type { GetPublicFormOptions, PartitionedFormPages, PublicFormAccountId, PublicFormComponent, PublicFormDefinition, PublicFormFieldMatch, PublicFormOption, PublicFormPage, PublicFormRegularPage, PublicFormSettings, PublicFormSpamProtection, PublicFormThankYouItem, PublicFormThankYouPage, PublicFormTurnstileProtection, VisitorVisibilityOptions } from './definition';
-export { CONSENT_COMPONENT_TYPES, formInputComponents, getPublicForm, isComponentVisibleToVisitors, normalizePublicFormDefinition, OPTIONAL_CONSENT_COMPONENT_TYPES, PHONE_COMPONENT_TYPES, PRESENTATIONAL_COMPONENT_TYPES, partitionFormPages, phoneVerificationComponents, phoneVerificationRequired } from './definition';
+export { CONSENT_COMPONENT_TYPES, DECLINABLE_CONSENT_COMPONENT_TYPES, formInputComponents, getPublicForm, isComponentVisibleToVisitors, normalizePublicFormDefinition, PHONE_COMPONENT_TYPES, PRESENTATIONAL_COMPONENT_TYPES, partitionFormPages, phoneVerificationComponents, phoneVerificationRequired } from './definition';
 export type { FormErrorCode, FormErrorMessageOptions, MoreflowClientErrorCode, MoreflowErrorRecovery } from './error';
 export { formErrorMessage, MoreflowFormError, missingFieldIdsFromError, serverErrorCode, serverErrorMessage } from './error';
 export type { JsonObject, JsonPrimitive, JsonValue } from './json';

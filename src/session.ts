@@ -1,5 +1,5 @@
 import {
-  OPTIONAL_CONSENT_COMPONENT_TYPES,
+  DECLINABLE_CONSENT_COMPONENT_TYPES,
   type PublicFormComponent,
   type PublicFormDefinition, 
   partitionFormPages,
@@ -227,12 +227,12 @@ export function createFormSession(
     return snapshot.phoneVerification ? { ...snapshot.phoneVerification, ...patch } : null;
   }
 
-  /** The values to submit: untouched visible optional consent boxes are an explicit decline. */
+  /** The values to submit: untouched visible consent boxes that grant consent are an explicit decline. */
   function submissionData(): JsonObject {
     const values: Record<string, JsonValue | undefined> = { ...snapshot.values };
     for (const step of steps) {
       for (const component of step.components) {
-        if (OPTIONAL_CONSENT_COMPONENT_TYPES.has(component.type) && values[component.id] === undefined) {
+        if (DECLINABLE_CONSENT_COMPONENT_TYPES.has(component.type) && values[component.id] === undefined) {
           values[component.id] = false;
         }
       }

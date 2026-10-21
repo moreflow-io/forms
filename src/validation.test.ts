@@ -54,15 +54,16 @@ describe('validateComponentValue', () => {
     ).toBeNull();
   });
 
-  it('never reports tracking_consent as CONSENT_REQUIRED, even when a definition marks it required', () => {
+  it('reports an unticked required tracking_consent as CONSENT_REQUIRED and leaves an optional one alone', () => {
     const tracking = component({
       type: 'tracking_consent',
       required: true,
       checkboxText: 'Ich bin einverstanden.'
     });
-    expect(validateComponentValue(tracking, false)).toBeNull();
-    expect(validateComponentValue(tracking, undefined)).toBeNull();
+    expect(validateComponentValue(tracking, false)).toMatchObject({ code: 'CONSENT_REQUIRED' });
+    expect(validateComponentValue(tracking, undefined)).toMatchObject({ code: 'CONSENT_REQUIRED' });
     expect(validateComponentValue(tracking, true)).toBeNull();
+    expect(validateComponentValue({ ...tracking, required: false }, false)).toBeNull();
   });
 
   it('skips a hidden tracking_consent checkbox (empty checkboxText) entirely', () => {
@@ -71,13 +72,14 @@ describe('validateComponentValue', () => {
     ).toBeNull();
   });
 
-  it('never reports marketing_consent as CONSENT_REQUIRED, even when a definition marks it required', () => {
+  it('reports an unticked required marketing_consent as CONSENT_REQUIRED and leaves an optional one alone', () => {
     const marketing = component({ type: 'marketing_consent', required: true });
     const options = { companyName: 'ACME GmbH' };
-    expect(validateComponentValue(marketing, false, options)).toBeNull();
-    expect(validateComponentValue(marketing, undefined, options)).toBeNull();
+    expect(validateComponentValue(marketing, false, options)).toMatchObject({ code: 'CONSENT_REQUIRED' });
+    expect(validateComponentValue(marketing, undefined, options)).toMatchObject({ code: 'CONSENT_REQUIRED' });
     expect(validateComponentValue(marketing, true, options)).toBeNull();
-    // Without a company name the box is hidden, so it is skipped entirely.
+    expect(validateComponentValue({ ...marketing, required: false }, false, options)).toBeNull();
+    // Without a company name the box is hidden, so even a required one is skipped.
     expect(validateComponentValue(marketing, false)).toBeNull();
   });
 
@@ -264,15 +266,21 @@ describe('prepareSubmissionData', () => {
       ).toEqual({ email: 'ada@example.com', privacy: true });
     });
 
-    it('lets the form pass validation with the marketing box unticked', () => {
+    it('blocks the form while the required marketing box is unticked', () => {
       expect(
-        validateFormValues(marketingDefinition, { email: 'ada@example.com', privacy: true }, options)
+        validateFormValues(
+          marketingDefinition,
+          { email: 'ada@example.com', privacy: true, marketing: true },
+          options
+        )
       ).toEqual([]);
       expect(
         validateFormValues(marketingDefinition, { email: 'ada@example.com' }, options).map(
           (entry) => entry.componentId
         )
-      ).toEqual(['privacy']);
+      ).toEqual(['privacy', 'marketing']);
+      // A box hidden for want of a company name never blocks.
+      expect(validateFormValues(marketingDefinition, { email: 'ada@example.com', privacy: true })).toEqual([]);
     });
   });
 });

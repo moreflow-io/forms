@@ -122,19 +122,20 @@ export interface PublicFormDefinition {
 export declare const PRESENTATIONAL_COMPONENT_TYPES: ReadonlySet<string>;
 export declare const PHONE_COMPONENT_TYPES: ReadonlySet<string>;
 /**
- * Consent checkboxes. `tracking_consent` and `marketing_consent` are optional
- * by design (see {@link OPTIONAL_CONSENT_COMPONENT_TYPES}); the privacy
- * checkboxes acknowledge the privacy notice and may be required.
+ * Consent checkboxes. The privacy checkboxes acknowledge the privacy notice;
+ * `tracking_consent` and `marketing_consent` grant consent (see
+ * {@link DECLINABLE_CONSENT_COMPONENT_TYPES}). Each one blocks submission only
+ * while the account marks it required and the visitor leaves it unticked.
  */
 export declare const CONSENT_COMPONENT_TYPES: ReadonlySet<string>;
 /**
- * Consent checkboxes that are always optional and unticked: they never block
- * submission, whatever a definition's `required` flag says, and only a box the
- * visitor ticks grants anything. `tracking_consent` grants email tracking
- * consent; `marketing_consent` is the only form field that grants marketing
- * email consent.
+ * Consent checkboxes that grant consent: never pre-ticked, and only a box the
+ * visitor ticks grants anything, so an untouched box submits an explicit
+ * `false`. They are optional unless the account marks them required.
+ * `tracking_consent` grants email tracking consent; `marketing_consent` is the
+ * only form field that grants marketing email consent.
  */
-export declare const OPTIONAL_CONSENT_COMPONENT_TYPES: ReadonlySet<string>;
+export declare const DECLINABLE_CONSENT_COMPONENT_TYPES: ReadonlySet<string>;
 export interface VisitorVisibilityOptions {
     /**
      * The company name your page shows in its consent copy: the tenant brand's
