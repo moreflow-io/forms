@@ -27,6 +27,7 @@ import { type MountedTurnstile, mountTurnstile } from './turnstile';
 import {
   type FormValidationCode,
   type FormValidationIssue,
+  missingComponentCode,
   prepareSubmissionData,
   validateComponentValue,
   validateFormPage,
@@ -296,7 +297,7 @@ export function createFormSession(
       if (code === 'ANTI_SPAM_INVALID' || code === 'ANTI_SPAM_REQUIRED') resetTurnstileToken();
       const missing = missingFieldIdsFromError(error).flatMap((id) => {
         const component = componentById(id);
-        return component ? [issueFor(component, 'REQUIRED')] : [];
+        return component ? [issueFor(component, missingComponentCode(component.type))] : [];
       });
       const firstMissing = missing[0];
       update({

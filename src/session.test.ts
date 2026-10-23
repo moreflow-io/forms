@@ -284,6 +284,34 @@ describe('createFormSession', () => {
     });
   });
 
+  it('marks a server-named consent box CONSENT_REQUIRED and other named fields REQUIRED', async () => {
+    const { fetchImpl } = api({
+      'POST /v1/forms/form-1/submissions': () =>
+        json(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Required fields are missing.',
+              details: { missingFieldIds: ['privacy', 'email'] }
+            }
+          },
+          400
+        )
+    });
+    const form = session(definitionWith(), { fetchImpl });
+    await fillToSubmit(form);
+
+    expect(await form.submit()).toBe(false);
+    expect(form.getSnapshot()).toMatchObject({
+      stepIndex: 1,
+      focusComponentId: 'privacy',
+      issues: {
+        privacy: { code: 'CONSENT_REQUIRED', message: 'Ihre Einwilligung ist erforderlich.' },
+        email: { code: 'REQUIRED', message: 'Dieses Feld ist erforderlich.' }
+      }
+    });
+  });
+
   it('runs phone verification before submitting and submits the verified number', async () => {
     let checks = 0;
     const { calls, fetchImpl } = api({

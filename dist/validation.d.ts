@@ -15,6 +15,12 @@ export interface FormValidationIssue {
  */
 export type FormValidationOptions = NormalizePhoneNumberOptions & VisitorVisibilityOptions;
 /**
+ * The code for a required component left empty: consent boxes are
+ * `CONSENT_REQUIRED`, everything else `REQUIRED`. Local validation and the
+ * server's `VALIDATION_ERROR` mapping (`missingFieldIdsFromError`) both use it.
+ */
+export declare function missingComponentCode(componentType: string): FormValidationCode;
+/**
  * Validates one component's value with the same rules the hosted Moreflow form
  * applies: required fields, consent checkboxes, email format, address
  * completeness, and full phone-number validation via libphonenumber. Returns

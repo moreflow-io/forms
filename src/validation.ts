@@ -49,6 +49,15 @@ function issue(component: PublicFormComponent, code: FormValidationCode): FormVa
   };
 }
 
+/**
+ * The code for a required component left empty: consent boxes are
+ * `CONSENT_REQUIRED`, everything else `REQUIRED`. Local validation and the
+ * server's `VALIDATION_ERROR` mapping (`missingFieldIdsFromError`) both use it.
+ */
+export function missingComponentCode(componentType: string): FormValidationCode {
+  return CONSENT_COMPONENT_TYPES.has(componentType) ? 'CONSENT_REQUIRED' : 'REQUIRED';
+}
+
 function isEmptyValue(value: unknown): boolean {
   if (value === null || value === undefined || value === '') return true;
   if (typeof value === 'string') return value.trim() === '';
@@ -80,13 +89,13 @@ export function validateComponentValue(
 
   if (CONSENT_COMPONENT_TYPES.has(component.type)) {
     if (component.required && !value) {
-      return issue(component, 'CONSENT_REQUIRED');
+      return issue(component, missingComponentCode(component.type));
     }
     return null;
   }
 
   if (component.required && isEmptyValue(value)) {
-    return issue(component, 'REQUIRED');
+    return issue(component, missingComponentCode(component.type));
   }
   if (component.required && component.type === 'address' && incompleteAddress(value)) {
     return issue(component, 'INCOMPLETE_ADDRESS');

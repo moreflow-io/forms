@@ -30,16 +30,17 @@ The other public SDKs, the agent plugins, and the HTTP API are listed in the
    token: the public form endpoints accept anonymous requests from allowed domains.
 
 > **Never put an API token in page source.** Anyone can read a token that is in your
-> HTML or JavaScript bundle and call the Moreflow API with it. The `token` option exists
-> for server-side code that forwards submissions (for example a backend proxy), where
-> the token stays on your server.
+> HTML or JavaScript bundle and call the Moreflow API with it. Browser code never needs
+> one. The `token` option exists only for server-side code that submits on its own
+> behalf, where the token stays on your server; [`@moreflow/api`](https://github.com/moreflow-io/api#readme)
+> is the server-only client for the rest of the API.
 
 ## Script-tag platforms
 
 For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler, load the browser build before the script that uses it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.0/dist/browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.1/dist/browser.js"></script>
 <script>
   const forms = window.MoreflowForms;
 
@@ -62,7 +63,9 @@ For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler,
 
 Use the exact versioned jsDelivr URL shown above. Response caching and headers are CDN-managed; Moreflow does not set cache headers for this npm-hosted file. Pin an exact published version and deliberately change the URL for every release, so a cached embed can never silently pick up new code. Do not use a bare package URL, a version range, or `@latest` for a production embed. The IIFE is the full bundle (about 44 KB gzip).
 
-The host page's Content Security Policy must allow the CDN and the API, for example `script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://api.moreflow.io`. Whether a browser origin may load or submit the form is decided by the form's allowed domains (see [Setup](#setup)). Submissions and phone verification send JSON, so the browser sends a CORS preflight first, and `https://api.moreflow.io` does not answer that preflight for other sites. Forward `/v1/forms/*` from your own server to `https://api.moreflow.io` and pass `baseUrl: ''`; loading the definition with `getPublicForm` works cross-origin.
+The host page's Content Security Policy must allow the CDN and the API, for example `script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://api.moreflow.io`. Whether a browser origin may load or submit the form is decided by the form's allowed domains (see [Setup](#setup)). The browser calls `https://api.moreflow.io` directly: loading the definition, submissions, and phone verification all answer CORS requests from any site, including the preflight the browser sends before a JSON request, and the allowed-domain check then runs on the real request.
+
+You do not need a proxy. Route these requests through your own server only when your Content Security Policy cannot list `https://api.moreflow.io`, and know what it costs. Preserving per-visitor rate limiting would require forwarding the real client IP through infrastructure Moreflow trusts. The public API currently rejects caller-supplied `CF-Connecting-IP` at Cloudflare and does not trust `X-Forwarded-For`, so all visitors share one rate limit at your server's IP. Forward the browser's `Origin` header unchanged, or the allowed-domain check no longer protects anything: a proxy that sends no `Origin` is rejected, and one that sets a fixed `Origin` lets anyone who reaches it through. Never add an API token in the proxy; the public endpoints do not need one. Pass `baseUrl: ''` (or your proxy's URL) to send the requests there.
 
 ## Configure a forms client once
 
@@ -73,7 +76,7 @@ shared transport and session defaults for a site:
 import { createFormsClient } from '@moreflow/forms';
 
 const forms = createFormsClient({
-  baseUrl: '', // Forward /v1/forms/* to Moreflow from your own server.
+  baseUrl: 'https://api.moreflow.io', // Optional: this is the default.
   acquisitionTracking: () => consentManager.hasMarketingConsent(),
   trackingCapture: { model: 'first-touch' },
   fetchImpl: fetch,
@@ -87,8 +90,9 @@ The client exposes `getPublicForm(options)`,
 `createFormSession(definition, options?)`, `submitWithRetry(options)`,
 `sendPhoneVerification(options)`, and `checkPhoneVerification(options)`.
 Per-call options override client defaults. `baseUrl` defaults to
-`https://api.moreflow.io`; pass a development origin or `''` for a same-origin
-proxy. `fetchImpl` selects a custom transport consistently across the SDKs.
+`https://api.moreflow.io`; pass a development origin or `''` only for the optional
+CSP proxy described above. `fetchImpl` selects a custom transport consistently
+across the SDKs.
 
 ## Form sessions: a wizard with presentation code only
 
@@ -112,7 +116,8 @@ code is only presentation.
 - **Submit**: `submit()` validates every step (jumping to the first invalid one),
   waits for a Turnstile token when the form's mode is `require`, runs phone
   verification when the form requires it, then submits idempotently with
-  `fieldMatching`, `locale`, the honeypot value and the Turnstile token. Untouched
+  `locale`, the honeypot value and the Turnstile token; Moreflow maps the values
+  to client fields from the published form itself. Untouched
   optional consent boxes are submitted as an explicit `false`. A server
   `VALIDATION_ERROR` marks the fields it names; `ANTI_SPAM_INVALID` resets the
   Turnstile token. Form-level failures land in `state.error.message`, localized.
@@ -407,7 +412,6 @@ in Moreflow.
         acquisitionTracking: () => hasMarketingConsent(),
         input: {
           data: prepareSubmissionData(definition, values, options),
-          fieldMatching: definition.fieldMatching,
           locale: language,
           spam: { honeypot: honeypot.value, turnstileToken }
         }
@@ -611,7 +615,6 @@ export function MoreflowForm({ definition }: { definition: PublicFormDefinition 
         acquisitionTracking: () => hasMarketingConsent(),
         input: {
           data: prepareSubmissionData(definition, values, { companyName }),
-          fieldMatching: definition.fieldMatching,
           locale: language,
           spam: {
             honeypot: honeypot.current?.value ?? '',
@@ -684,7 +687,7 @@ Option `value`s come from `component.options[].value`. Leave a field out (or
 
 ## Loading the form definition
 
-`getPublicForm` loads the published form (`GET /v1/forms/{formId}`) and returns one normalized `PublicFormDefinition`. It reads the clean v1 resource (`id`, `name`, `accountId`, `version` with `fieldMatching`) and still accepts the legacy production shape (`record.data.config.current_version`, snake_case `field_matching`) as a fallback. You never probe `required` vs `isRequired` or either response shape yourself — the helper resolves all of that:
+`getPublicForm` loads the published form (`GET /v1/forms/{formId}`) and returns one normalized `PublicFormDefinition`. It reads the clean v1 resource (`id`, `name`, `accountId`, `version`) and still accepts the legacy production shape (`record.data.config.current_version`, snake_case `field_matching`) as a fallback. You never probe `required` vs `isRequired` or either response shape yourself — the helper resolves all of that:
 
 ```ts
 import { getPublicForm, partitionFormPages, resolveFormMessage } from '@moreflow/forms';
@@ -705,7 +708,7 @@ for (const page of steps) {
 
 The definition also carries `companyName`, the tenant brand's display name (the company profile name in Moreflow) that consent copy names, and `language`, the account's default form language (`'de'` or `'en'`). Both are undefined when the server predates them. `settings.submitButtonText`, `settings.continueButtonText` and `settings.thankYouPageUrl` are typed strings when set.
 
-Every component carries `id`, `type`, a merged boolean `required`, normalized `options` (`{ value, label }` objects even when strings were persisted), `verifyPhone` for phone fields, and the original persisted object under `raw` for custom passthrough props. `definition.fieldMatching` is typed (`{ formFieldId, clientField }[]`) and should be passed unchanged as `input.fieldMatching` when submitting.
+Every component carries `id`, `type`, a merged boolean `required`, normalized `options` (`{ value, label }` objects even when strings were persisted), `verifyPhone` for phone fields, and the component as the server returned it under `raw` for render props the typed keys do not cover (such as a heading's `content` or an image's `src`). The response carries only what rendering needs: the client-field mapping stays on the server, which maps every submission's `data` from the stored published form. `definition.fieldMatching` is therefore `[]` from current servers (it still reads the mapping of an older response), and you do not need to send it; `component.importAs` is deprecated and undefined.
 
 Image blocks (`type: 'image'`, on thank-you pages under `props`) carry a stable `src` that never expires. Render it directly — `<img src={item.props.src} alt={item.props.alt} />` — without refresh timers, expiry checks, or retry handlers: the API answers each request with a redirect to a freshly signed storage URL. The URL keeps working for as long as the image is part of the published form; after a republish that replaces it, load the definition again.
 
@@ -797,8 +800,7 @@ if (issues.length === 0) {
   await submitWithRetry({
     formId: definition.formId,
     input: {
-      data: prepareSubmissionData(definition, values), // phones → E.164, empties dropped
-      fieldMatching: definition.fieldMatching
+      data: prepareSubmissionData(definition, values) // phones → E.164, empties dropped
     },
     baseUrl: 'https://api.moreflow.io'
   });
@@ -830,7 +832,6 @@ await submitWithRetry({
   formId: definition.formId,
   input: {
     data: prepareSubmissionData(definition, values, { companyName }),
-    fieldMatching: definition.fieldMatching,
     locale: language
   },
   baseUrl: 'https://api.moreflow.io'
@@ -912,7 +913,7 @@ If storage is unavailable or throws — including a caller-provided `StorageLike
 
 Payload fingerprints use SHA-256 when `crypto.subtle` is available and a deterministic djb2 fallback on insecure HTTP pages. Idempotency keys still require `crypto.getRandomValues`, which browsers provide on those pages.
 
-The helper posts to `{baseUrl}/v1/forms/{formId}/submissions` and sends both the `Idempotency-Key` header and JSON `idempotencyKey` field. `baseUrl` defaults to `https://api.moreflow.io`, which a browser on an allowed domain calls without a token (see [Setup](#setup)); pass `baseUrl: ''` to post to your page's own origin behind a same-origin proxy. Server-side code that forwards submissions can pass `token` to send `Authorization: Bearer <token>` on every attempt, including a replay of a stored idempotent body; never pass a token from browser code. You can also pass `headers` for additional request headers; the helper always supplies the JSON content type and idempotency key. See the [API idempotency guide](https://api.moreflow.io/v1/operations/docs/guide#idempotency) for the server contract and recovery table.
+The helper posts to `{baseUrl}/v1/forms/{formId}/submissions` and sends both the `Idempotency-Key` header and JSON `idempotencyKey` field. `baseUrl` defaults to `https://api.moreflow.io`, which a browser on an allowed domain calls without a token (see [Setup](#setup)); pass `baseUrl: ''` to post to your page's own origin only behind an optional same-origin proxy (see [Script-tag platforms](#script-tag-platforms) for what a proxy costs). Server-side code that submits on its own behalf can pass `token` to send `Authorization: Bearer <token>` on every attempt, including a replay of a stored idempotent body; never pass a token from browser code. You can also pass `headers` for additional request headers; the helper always supplies the JSON content type and idempotency key. See the [API idempotency guide](https://api.moreflow.io/v1/operations/docs/guide#idempotency) for the server contract and recovery table.
 
 ## Error messages
 

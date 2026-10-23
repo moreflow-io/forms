@@ -274,6 +274,31 @@ describe('normalizePublicFormDefinition', () => {
     ]);
   });
 
+  it('reads the render-only resource that returns no field mapping', () => {
+    const definition = normalizePublicFormDefinition({
+      id: 'form-1',
+      honeypotField: 'website',
+      version: {
+        id: 'version-1',
+        version: 5,
+        settings: {},
+        pages: [
+          {
+            id: 'step-1',
+            type: 'regular',
+            components: [{ id: 'field_work_email', type: 'email', label: 'Email', required: true }]
+          }
+        ]
+      }
+    });
+
+    expect(definition.fieldMatching).toEqual([]);
+    expect(definition.pages[0]).toMatchObject({
+      type: 'regular',
+      components: [{ id: 'field_work_email', type: 'email', required: true, importAs: undefined }]
+    });
+  });
+
   it('falls back to the legacy record name and version field_matching when v1 fields are absent', () => {
     const legacyProductionBody = {
       id: 'form-1',

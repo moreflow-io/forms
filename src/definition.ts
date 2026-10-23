@@ -35,9 +35,16 @@ export interface PublicFormComponent {
   checkboxText?: string | undefined;
   /** Phone fields only: the embed must run phone verification before submitting. */
   verifyPhone?: boolean | undefined;
+  /**
+   * @deprecated Moreflow no longer returns this client-field mapping hint; it is
+   * undefined from current servers. Submissions are mapped server-side.
+   */
   importAs?: string | undefined;
   size?: string | undefined;
-  /** The persisted component including every passthrough property. */
+  /**
+   * The component as the server returned it, for render props the typed keys
+   * do not cover (for example `content` of a heading or `src` of an image).
+   */
   raw: JsonObject;
 }
 
@@ -138,7 +145,12 @@ export interface PublicFormDefinition {
   publishedAt?: string | undefined;
   settings: PublicFormSettings;
   pages: PublicFormPage[];
-  /** Pass unchanged as `input.fieldMatching` to `submitWithRetry`. */
+  /**
+   * The client-field mapping a legacy response carried; empty from current
+   * Moreflow servers, which map every submission from the stored published
+   * form and ignore a mapping sent with it. Sending it unchanged as
+   * `input.fieldMatching` stays harmless.
+   */
   fieldMatching: PublicFormFieldMatch[];
 }
 
@@ -366,11 +378,13 @@ function spamProtectionFrom(value: unknown): PublicFormSpamProtection {
  *
  * The clean v1 resource carries the form at the root (`id`, `name`,
  * `accountId`, `honeypotField`, `spamProtection`) and the published version as
- * `version` (camelCase `fieldMatching`). Responses from before v1 also carried
- * a `record` copy with `record.data.config.current_version`, a snake_case
+ * `version`, with only what rendering needs: no client-field mapping, which
+ * Moreflow applies server-side, so `fieldMatching` is empty. Older responses
+ * carried a camelCase `fieldMatching`, and responses from before v1 a `record`
+ * copy with `record.data.config.current_version`, a snake_case
  * `field_matching` alias and string options; those remain readable as a
- * fallback for embeds that still receive the legacy production shape. Where
- * both are present, the v1 field wins. Prefers the candidate whose thank-you
+ * fallback for embeds that still receive a legacy shape. Where both are
+ * present, the v1 field wins. Prefers the candidate whose thank-you
  * page still carries its content props.
  */
 export function normalizePublicFormDefinition(

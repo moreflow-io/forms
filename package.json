@@ -1,6 +1,6 @@
 {
   "name": "@moreflow/forms",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Headless public-form helpers, a form session store, an optional React hook and browser Turnstile mount.",
   "license": "MIT",
   "repository": {
@@ -33,6 +33,13 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "react": [
+        "./dist/react.d.ts"
+      ]
+    }
+  },
   "jsdelivr": "./dist/browser.js",
   "unpkg": "./dist/browser.js",
   "exports": {

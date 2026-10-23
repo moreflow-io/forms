@@ -4,6 +4,12 @@ All notable changes to `@moreflow/forms` are documented in this file.
 
 ## Unreleased
 
+## 0.9.1
+
+- `GET /v1/forms/{formId}` now returns only what rendering needs: no client-field mapping, and components without mapping hints, editor-only flags or other stored keys. `definition.fieldMatching` is `[]` from current servers, `component.importAs` is deprecated and undefined, and `component.raw` holds the returned render keys only. Moreflow maps every submission from the stored published form and ignores a sent `fieldMatching`, so drop it from `submitWithRetry` input; sending it stays harmless, and older responses that still carry a mapping are read as before.
+- `createFormSession` maps a server `VALIDATION_ERROR` naming a consent box (`privacy_policy`, `privacy_checkbox`, `tracking_consent`, `marketing_consent`) to `CONSENT_REQUIRED` with the localized consent message, the same code local validation uses. Other named fields keep `REQUIRED`. Forms that remapped these issues at display time can drop that workaround.
+- Add `typesVersions` so the `@moreflow/forms/react` types resolve under `moduleResolution: "node"` (node10) as well as `node16` and `bundler`; before, consumers on node10 got TS2307 and had to switch to `bundler`.
+
 ## 0.9.0
 
 - **Breaking:** `tracking_consent` and `marketing_consent` boxes keep the `required` flag the account sets instead of normalizing to `required: false`. A required box left unticked is reported as `CONSENT_REQUIRED` by `validateComponentValue`, `validateFormPage`, `validateFormValues` and `createFormSession`, and Moreflow rejects the submission with `VALIDATION_ERROR` naming it in `missingFieldIds`. Optional boxes behave as before, and a box hidden from visitors (tracking consent without `checkboxText`, marketing consent without a company name) never blocks.

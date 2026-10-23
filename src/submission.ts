@@ -142,6 +142,10 @@ export function createIdempotencyStore(options: {
 
 export interface PublicFormSubmissionInput {
   data: JsonObject;
+  /**
+   * Optional and ignored for mapping: Moreflow maps `data` to client fields
+   * from the stored published form. Accepted so older embeds keep working.
+   */
   fieldMatching?: JsonValue[] | undefined;
   utmParams?: JsonObject | undefined;
   tracking?: PublicFormTracking | undefined;
