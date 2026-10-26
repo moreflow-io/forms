@@ -1,13 +1,13 @@
 # `@moreflow/forms`
 
-Headless browser helpers for custom Moreflow forms. The default API contains no UI,
+Headless browser helpers for custom moreflow forms. The default API contains no UI,
 React, styles, or form rendering: it loads the published definition in one canonical
 shape, validates entered values with the same rules the hosted form uses, prepares
-and submits payloads idempotently, and resolves Moreflow's default labels.
+and submits payloads idempotently, and resolves moreflow's default labels.
 `createFormSession` combines them into one store that runs a whole wizard, so a custom
 form needs only presentation code, and the optional `@moreflow/forms/react` entry wraps
 it in a `useMoreflowForm` hook. The only optional rendering helper is `mountTurnstile`,
-a deliberately narrow browser mount for the public site key discovered from a Moreflow
+a deliberately narrow browser mount for the public site key discovered from a moreflow
 form definition.
 
 ```bash
@@ -15,14 +15,14 @@ npm install @moreflow/forms
 ```
 
 The other public SDKs, the agent plugins, and the HTTP API are listed in the
-[Moreflow SDK overview](https://api.moreflow.io/v1/operations/docs/guide#sdks).
+[moreflow SDK overview](https://api.moreflow.io/v1/operations/docs/guide#sdks).
 
 ## Setup
 
-1. Publish the form in Moreflow.
+1. Publish the form in moreflow.
 2. Open the form's **Embed** tab and add the domain that will show the form under
    **Websites** (for example `example.com`; this also covers subdomains such as
-   `www.example.com`). Moreflow checks the browser's `Origin` against this list on every
+   `www.example.com`). moreflow checks the browser's `Origin` against this list on every
    load and submission, and rejects every browser origin while the list is empty. Until
    your domain is on it, the first request fails with `ORIGIN_NOT_ALLOWED`. Agents can set
    the list with the `forms.allowedDomains.update` operation.
@@ -30,7 +30,7 @@ The other public SDKs, the agent plugins, and the HTTP API are listed in the
    token: the public form endpoints accept anonymous requests from allowed domains.
 
 > **Never put an API token in page source.** Anyone can read a token that is in your
-> HTML or JavaScript bundle and call the Moreflow API with it. Browser code never needs
+> HTML or JavaScript bundle and call the moreflow API with it. Browser code never needs
 > one. The `token` option exists only for server-side code that submits on its own
 > behalf, where the token stays on your server; [`@moreflow/api`](https://github.com/moreflow-io/api#readme)
 > is the server-only client for the rest of the API.
@@ -40,7 +40,7 @@ The other public SDKs, the agent plugins, and the HTTP API are listed in the
 For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler, load the browser build before the script that uses it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.1/dist/browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.2/dist/browser.js"></script>
 <script>
   const forms = window.MoreflowForms;
 
@@ -61,11 +61,11 @@ For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler,
 
 `window.MoreflowForms` exposes the same runtime API as the ESM package. The browser build is a classic, self-contained IIFE: it includes phone-number parsing and the default label catalogs and does not need import maps, a bundler, or a second script.
 
-Use the exact versioned jsDelivr URL shown above. Response caching and headers are CDN-managed; Moreflow does not set cache headers for this npm-hosted file. Pin an exact published version and deliberately change the URL for every release, so a cached embed can never silently pick up new code. Do not use a bare package URL, a version range, or `@latest` for a production embed. The IIFE is the full bundle (about 44 KB gzip).
+Use the exact versioned jsDelivr URL shown above. Response caching and headers are CDN-managed; moreflow does not set cache headers for this npm-hosted file. Pin an exact published version and deliberately change the URL for every release, so a cached embed can never silently pick up new code. Do not use a bare package URL, a version range, or `@latest` for a production embed. The IIFE is the full bundle (about 44 KB gzip).
 
 The host page's Content Security Policy must allow the CDN and the API, for example `script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://api.moreflow.io`. Whether a browser origin may load or submit the form is decided by the form's allowed domains (see [Setup](#setup)). The browser calls `https://api.moreflow.io` directly: loading the definition, submissions, and phone verification all answer CORS requests from any site, including the preflight the browser sends before a JSON request, and the allowed-domain check then runs on the real request.
 
-You do not need a proxy. Route these requests through your own server only when your Content Security Policy cannot list `https://api.moreflow.io`, and know what it costs. Preserving per-visitor rate limiting would require forwarding the real client IP through infrastructure Moreflow trusts. The public API currently rejects caller-supplied `CF-Connecting-IP` at Cloudflare and does not trust `X-Forwarded-For`, so all visitors share one rate limit at your server's IP. Forward the browser's `Origin` header unchanged, or the allowed-domain check no longer protects anything: a proxy that sends no `Origin` is rejected, and one that sets a fixed `Origin` lets anyone who reaches it through. Never add an API token in the proxy; the public endpoints do not need one. Pass `baseUrl: ''` (or your proxy's URL) to send the requests there.
+You do not need a proxy. Route these requests through your own server only when your Content Security Policy cannot list `https://api.moreflow.io`, and know what it costs. Preserving per-visitor rate limiting would require forwarding the real client IP through infrastructure moreflow trusts. The public API currently rejects caller-supplied `CF-Connecting-IP` at Cloudflare and does not trust `X-Forwarded-For`, so all visitors share one rate limit at your server's IP. Forward the browser's `Origin` header unchanged, or the allowed-domain check no longer protects anything: a proxy that sends no `Origin` is rejected, and one that sets a fixed `Origin` lets anyone who reaches it through. Never add an API token in the proxy; the public endpoints do not need one. Pass `baseUrl: ''` (or your proxy's URL) to send the requests there.
 
 ## Configure a forms client once
 
@@ -103,8 +103,8 @@ submission and the thank-you result. It is a framework-agnostic store: render fr
 code is only presentation.
 
 - **Language and company name** default to `definition.language` and
-  `definition.companyName`, which Moreflow returns with the form, so the
-  `marketing_consent` box shows the exact name Moreflow evidences the consent with
+  `definition.companyName`, which moreflow returns with the form, so the
+  `marketing_consent` box shows the exact name moreflow evidences the consent with
   and the submission's `locale` matches the language you render.
 - **Steps**: `state.steps`, `state.step`, `stepIndex`, `isFirstStep`, `isLastStep`
   and `progress` (0 to 1). `next()` validates the current step and moves on, or
@@ -116,7 +116,7 @@ code is only presentation.
 - **Submit**: `submit()` validates every step (jumping to the first invalid one),
   waits for a Turnstile token when the form's mode is `require`, runs phone
   verification when the form requires it, then submits idempotently with
-  `locale`, the honeypot value and the Turnstile token; Moreflow maps the values
+  `locale`, the honeypot value and the Turnstile token; moreflow maps the values
   to client fields from the published form itself. Untouched
   optional consent boxes are submitted as an explicit `false`. A server
   `VALIDATION_ERROR` marks the fields it names; `ANTI_SPAM_INVALID` resets the
@@ -317,7 +317,7 @@ This example loads a form, renders every visible field, validates, submits, and
 shows the thank-you page. It uses the ESM package; on a script-tag page, replace
 the import with `const { getPublicForm, ... } = window.MoreflowForms;`. Browser
 submissions need no token: add the page's domain to the form's allowed domains
-in Moreflow.
+in moreflow.
 
 ```html
 <div id="moreflow-form"></div>
@@ -666,7 +666,7 @@ in the plain DOM example and call `onChange` with a value in the shape below.
 
 ## Field value shapes
 
-`input.data` is keyed by component id. Moreflow stores each value as sent and
+`input.data` is keyed by component id. moreflow stores each value as sent and
 maps the linked client fields from it, so send these shapes:
 
 | Component `type` | Value | Example |
@@ -706,7 +706,7 @@ for (const page of steps) {
 }
 ```
 
-The definition also carries `companyName`, the tenant brand's display name (the company profile name in Moreflow) that consent copy names, and `language`, the account's default form language (`'de'` or `'en'`). Both are undefined when the server predates them. `settings.submitButtonText`, `settings.continueButtonText` and `settings.thankYouPageUrl` are typed strings when set.
+The definition also carries `companyName`, the tenant brand's display name (the company profile name in moreflow) that consent copy names, and `language`, the account's default form language (`'de'` or `'en'`). Both are undefined when the server predates them. `settings.submitButtonText`, `settings.continueButtonText` and `settings.thankYouPageUrl` are typed strings when set.
 
 Every component carries `id`, `type`, a merged boolean `required`, normalized `options` (`{ value, label }` objects even when strings were persisted), `verifyPhone` for phone fields, and the component as the server returned it under `raw` for render props the typed keys do not cover (such as a heading's `content` or an image's `src`). The response carries only what rendering needs: the client-field mapping stays on the server, which maps every submission's `data` from the stored published form. `definition.fieldMatching` is therefore `[]` from current servers (it still reads the mapping of an older response), and you do not need to send it; `component.importAs` is deprecated and undefined.
 
@@ -732,14 +732,14 @@ Cloudflare Turnstile policy:
 | `flag` | Accepted, but stored as suspected spam: the entry skips the CRM and automations until someone reviews it. | Mount Turnstile so real visitors are not flagged. |
 | `require` | Rejected with `ANTI_SPAM_REQUIRED` (no token) or `ANTI_SPAM_INVALID` (bad or reused token). | Mount Turnstile and block submit until `onToken` fired. |
 
-When `siteKey` is blank, Moreflow has no verifier for the current context and
+When `siteKey` is blank, moreflow has no verifier for the current context and
 fails open in both `flag` and `require`: the submission is accepted and stored
 as suspected spam. Submit normally in that case.
 
 ### Optional Turnstile mount
 
 `definition.spamProtection.turnstile` is public discovery data for the form’s
-Turnstile policy. It contains a site key only when Moreflow has a configured
+Turnstile policy. It contains a site key only when moreflow has a configured
 widget/verifier for the current context. For customer embeds, call
 `mountTurnstile` only after `getPublicForm` returns a non-empty site key; it
 injects Cloudflare’s script once, explicitly renders an invisible managed widget,
@@ -780,7 +780,7 @@ Failures throw `MoreflowFormError` with the server's navigational code: `FORM_NO
 
 ## Validating and preparing values
 
-`validateFormValues` (whole form), `validateFormPage` (one wizard step), and `validateComponentValue` (one field) apply the same rules as the hosted Moreflow form: required fields, consent checkboxes, address completeness, the email format check, and full libphonenumber phone validation. Issues are structured; `validationMessage(issue, { language })` returns the German or English text to show next to the field (the issue's own `message` is always English):
+`validateFormValues` (whole form), `validateFormPage` (one wizard step), and `validateComponentValue` (one field) apply the same rules as the hosted moreflow form: required fields, consent checkboxes, address completeness, the email format check, and full libphonenumber phone validation. Issues are structured; `validationMessage(issue, { language })` returns the German or English text to show next to the field (the issue's own `message` is always English):
 
 ```ts
 import {
@@ -811,13 +811,13 @@ Presentational components (`heading`, `separator`, `spacing`, `image`, `video`, 
 
 ### Tracking consent (`tracking_consent`)
 
-A `tracking_consent` component is a checkbox that records the visitor's consent to email tracking. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. Its consent text is written by the account in the component's `checkboxText`; Moreflow supplies no wording. While that text is empty or whitespace the component is hidden: `partitionFormPages` and `formInputComponents` leave it out, and `prepareSubmissionData` drops any value for it. Use `isComponentVisibleToVisitors(component)` to apply the same rule yourself. A checked box submits `true` under the component id, and the submission records an email tracking consent grant for the linked client.
+A `tracking_consent` component is a checkbox that records the visitor's consent to email tracking. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. Its consent text is written by the account in the component's `checkboxText`; moreflow supplies no wording. While that text is empty or whitespace the component is hidden: `partitionFormPages` and `formInputComponents` leave it out, and `prepareSubmissionData` drops any value for it. Use `isComponentVisibleToVisitors(component)` to apply the same rule yourself. A checked box submits `true` under the component id, and the submission records an email tracking consent grant for the linked client.
 
 ### Privacy notice and marketing consent (`privacy_policy`, `marketing_consent`)
 
-The `privacy_policy` checkbox acknowledges the privacy notice (`forms.privacy.consentLabel`) and may be required; it records no consent. A `marketing_consent` component is the only form field that records marketing email consent. Render it as an **unticked** checkbox without a separate label, whose text is `marketingConsentText({ companyName, language })`: Moreflow's marketing wording naming your company. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. A box hidden for want of a company name never blocks.
+The `privacy_policy` checkbox acknowledges the privacy notice (`forms.privacy.consentLabel`) and may be required; it records no consent. A `marketing_consent` component is the only form field that records marketing email consent. Render it as an **unticked** checkbox without a separate label, whose text is `marketingConsentText({ companyName, language })`: moreflow's marketing wording naming your company. It is optional unless the account marks it required; a required box left unticked is reported as `CONSENT_REQUIRED` and blocks submission. A box hidden for want of a company name never blocks.
 
-Its text names the company, so the box is hidden without a company name. The helpers that take a definition default `companyName` to `definition.companyName`, the name Moreflow returns with the form and evidences the consent with, so you normally pass nothing. Otherwise pass the `companyName` your page shows (your company profile name in Moreflow, exactly as the hosted form shows it) to `partitionFormPages`, `formInputComponents`, `validateFormValues`, `validateFormPage`, `validateComponentValue`, and `prepareSubmissionData`. Without it they leave the box out and drop any value for it; `isComponentVisibleToVisitors(component, { companyName })` applies the same rule. A ticked box submits `true` under the component id. Send the `language` you rendered with as `input.locale`: Moreflow rebuilds the marketing text in that locale with your company profile name and records a hash of it with the grant, so the evidence matches the exact text the visitor saw.
+Its text names the company, so the box is hidden without a company name. The helpers that take a definition default `companyName` to `definition.companyName`, the name moreflow returns with the form and evidences the consent with, so you normally pass nothing. Otherwise pass the `companyName` your page shows (your company profile name in moreflow, exactly as the hosted form shows it) to `partitionFormPages`, `formInputComponents`, `validateFormValues`, `validateFormPage`, `validateComponentValue`, and `prepareSubmissionData`. Without it they leave the box out and drop any value for it; `isComponentVisibleToVisitors(component, { companyName })` applies the same rule. A ticked box submits `true` under the component id. Send the `language` you rendered with as `input.locale`: moreflow rebuilds the marketing text in that locale with your company profile name and records a hash of it with the grant, so the evidence matches the exact text the visitor saw.
 
 ```ts
 import { marketingConsentText, partitionFormPages, prepareSubmissionData } from '@moreflow/forms';
@@ -845,7 +845,7 @@ elsewhere; `'DE'` is the default.
 
 ## Default labels and translations
 
-Published definitions store Moreflow's default labels as message keys (`forms.defaults.first_name.label`, `forms.privacy.iAgree`, `forms.settings.submitButton`, ...). `resolveFormMessage` turns them into the same German or English copy the hosted form renders; literal text a form author typed passes through unchanged, so it is safe to call on every label:
+Published definitions store moreflow's default labels as message keys (`forms.defaults.first_name.label`, `forms.privacy.iAgree`, `forms.settings.submitButton`, ...). `resolveFormMessage` turns them into the same German or English copy the hosted form renders; literal text a form author typed passes through unchanged, so it is safe to call on every label:
 
 ```ts
 import { resolveFormMessage } from '@moreflow/forms';
@@ -1034,4 +1034,4 @@ Failures are `MoreflowFormError` with the server's navigational code: `INVALID_V
 
 ## Issues and contributing
 
-Bug reports and feature requests are welcome in [this repository's issue tracker](https://github.com/moreflow-io/forms/issues). Development happens in the private Moreflow monorepo alongside the server contract this package mirrors; each released version is synced here, so the published source always matches the npm release.
+Bug reports and feature requests are welcome in [this repository's issue tracker](https://github.com/moreflow-io/forms/issues). Development happens in the private moreflow monorepo alongside the server contract this package mirrors; each released version is synced here, so the published source always matches the npm release.

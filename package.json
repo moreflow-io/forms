@@ -1,6 +1,6 @@
 {
   "name": "@moreflow/forms",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Headless public-form helpers, a form session store, an optional React hook and browser Turnstile mount.",
   "license": "MIT",
   "repository": {

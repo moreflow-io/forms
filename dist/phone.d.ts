@@ -12,6 +12,18 @@ export type NormalizedPhoneNumber = {
     status: 'invalid';
     input: string;
 };
+/**
+ * Normalizes a raw phone number into E.164. National numbers ("0151...")
+ * are interpreted against `defaultCountry` (Germany unless specified).
+ *
+ * Where domestic numbers start with the trunk prefix "0" (DE, AT, CH, GB, …),
+ * digits without "+", "00" or a leading "0" that begin with the country's own
+ * calling code ("49 152 21322502") are read as international: reading them
+ * nationally doubles the code into a different, still valid-looking number
+ * (+49 491…). Other bare digits ("170 1234567") keep the national reading.
+ * A number that already carries the doubled code ("+49 49 152…") is repaired
+ * by {@link withoutDoubledCountryCode}.
+ */
 export declare function normalizePhoneNumber(raw: string | null | undefined, options?: NormalizePhoneNumberOptions): NormalizedPhoneNumber;
 export declare function normalizePhoneToE164(raw: string | null | undefined, options?: NormalizePhoneNumberOptions): string | null;
 export interface PhoneInputParts {

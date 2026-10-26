@@ -1,5 +1,66 @@
 import { describe, expect, it } from 'vitest';
-import { composePhoneNumber, countryCallingCode, describePhoneInput } from './index';
+import {
+  composePhoneNumber,
+  countryCallingCode,
+  describePhoneInput,
+  normalizePhoneNumber
+} from './index';
+
+describe('normalizePhoneNumber', () => {
+  it('reads a bare German country code as international, not as a doubled national number', () => {
+    expect(normalizePhoneNumber('49 152 21322502')).toEqual({
+      status: 'valid',
+      e164: '+4915221322502'
+    });
+    expect(normalizePhoneNumber('4915221322502')).toEqual({
+      status: 'valid',
+      e164: '+4915221322502'
+    });
+  });
+
+  it('drops a calling code typed twice when the rest is a German mobile number', () => {
+    for (const raw of ['+49 49 152 21322502', '+494915221322502', '00494915221322502']) {
+      expect(normalizePhoneNumber(raw)).toEqual({ status: 'valid', e164: '+4915221322502' });
+    }
+    expect(normalizePhoneNumber('+49491742618237')).toEqual({
+      status: 'valid',
+      e164: '+491742618237'
+    });
+  });
+
+  it('keeps real numbers in the 049x area codes', () => {
+    for (const e164 of ['+4949112345', '+49491929001234', '+494917123456', '+4949217654321']) {
+      expect(normalizePhoneNumber(e164)).toEqual({ status: 'valid', e164 });
+    }
+  });
+
+  it('keeps the national reading for bare digits that do not start with the country code', () => {
+    expect(normalizePhoneNumber('1701234567')).toEqual({
+      status: 'valid',
+      e164: '+491701234567'
+    });
+  });
+
+  it('normalizes trunk-prefixed, plus and 00-prefixed input to the same number', () => {
+    for (const raw of ['015221322502', '+4915221322502', '004915221322502']) {
+      expect(normalizePhoneNumber(raw)).toEqual({ status: 'valid', e164: '+4915221322502' });
+    }
+  });
+
+  it('reads national input against the given default country', () => {
+    expect(normalizePhoneNumber('2025550123', { defaultCountry: 'US' })).toEqual({
+      status: 'valid',
+      e164: '+12025550123'
+    });
+  });
+
+  it('rejects phone numbers embedded in prose (extract: false)', () => {
+    expect(normalizePhoneNumber('call me at +49 170 1234567')).toEqual({
+      status: 'invalid',
+      input: 'call me at +49 170 1234567'
+    });
+  });
+});
 
 describe('describePhoneInput', () => {
   it('decomposes a full international number', () => {
