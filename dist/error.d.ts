@@ -19,7 +19,7 @@ export type FormErrorCode = MoreflowClientErrorCode
 /** The form response has no pages or no form id. */
  | 'INVALID_FORM_DEFINITION'
 /** Turnstile cannot load here (no browser, or the script failed). */
- | 'TURNSTILE_UNAVAILABLE'
+ | 'TURNSTILE_UNAVAILABLE' | 'TURNSTILE_TOKEN_REQUIRED' | 'TURNSTILE_TOKEN_INVALID' | 'TURNSTILE_ACTION_MISMATCH' | 'TURNSTILE_HOSTNAME_NOT_ALLOWED' | 'TURNSTILE_VERIFICATION_UNAVAILABLE'
 /** The form id is unknown, or the form belongs to no account. */
  | 'FORM_NOT_FOUND'
 /** The form was archived. */
@@ -74,8 +74,8 @@ export type FormErrorMessageOptions = LocalizedFormErrorOptions;
  * Returns the message to show for a caught form helper error.
  *
  * With options (`formErrorMessage(error, { language: 'de' })`) it returns
- * visitor-facing copy for the error's `code` in German ("Sie" or, with
- * `formality: 'informal'`, "du") or English, or your `messages.errors` text,
+ * visitor-facing copy for the error's `code` in German ("du" or, with
+ * `formality: 'formal'`, "Sie") or English, or your `messages.errors` text,
  * and never the server's English developer message.
  *
  * With a string or nothing as the second argument it keeps its original

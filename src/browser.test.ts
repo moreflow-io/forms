@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 type BrowserForms = Pick<
   typeof import('./index'),
@@ -60,9 +60,15 @@ function loadBrowserForms() {
     }
   };
   const sandbox = {
+    location: { href: 'https://customer.example/form', origin: 'https://customer.example' },
+    AbortController,
+    setTimeout,
+    clearTimeout,
     Headers,
     Response,
     URL,
+    // Every browser has URLSearchParams; the definition read builds its visitor-key query with it.
+    URLSearchParams,
     crypto: {
       getRandomValues(bytes: Uint8Array) {
         bytes.fill(7);
@@ -91,6 +97,45 @@ function loadBrowserForms() {
 }
 
 describe('@moreflow/forms browser build', () => {
+  it('solves fresh phone-send proof in the shipped classic browser bundle', async () => {
+    const { forms } = loadBrowserForms();
+    const proofs: Array<string | null> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/v1/security/operation-challenge')) {
+        return Response.json({
+          enabled: true,
+          actions: {
+            'PUT /v1/forms/$formId/phone-verification': 'form_phone_verification'
+          }
+        });
+      }
+      const token = new Headers(init?.headers).get('x-captcha-response');
+      proofs.push(token);
+      return token
+        ? Response.json({ challengeId: 'sms-challenge' })
+        : Response.json(
+            { code: 'TURNSTILE_TOKEN_REQUIRED', message: 'Solve again.' },
+            { status: 403 }
+          );
+    });
+    let nonce = 0;
+    const options = {
+      formId: 'form-1',
+      phoneNumber: '+491701234567',
+      baseUrl: 'https://api.moreflow.test',
+      fetchImpl,
+      getChallengeToken: async (input: { operationId: string; action: string }) => {
+        expect(input.operationId).toBe('PUT /v1/forms/$formId/phone-verification');
+        expect(input.action).toBe('form_phone_verification');
+        return `browser-proof-${++nonce}`;
+      }
+    };
+    await forms.sendPhoneVerification(options);
+    await forms.sendPhoneVerification(options);
+    expect(proofs).toEqual([null, 'browser-proof-1', 'browser-proof-2']);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
   it('runs as a classic script with the global API, storage fallback, phone normalization, and auth', async () => {
     expect(browserBundle).not.toMatch(/(?:^|\n)\s*import\s/mu);
 
@@ -208,17 +253,33 @@ describe('@moreflow/forms browser build', () => {
     const render = (container: object, options: Record<string, unknown>) => {
       expect(container).toEqual({ id: 'turnstile-container' });
       expect(options).toMatchObject({ sitekey: 'public-site-key', 'response-field': false });
+      expect(typeof options.callback).toBe('function');
+      if (typeof options.callback === 'function') options.callback('browser-token');
       return 'browser-widget';
     };
     const reset = (widgetId: string) => expect(widgetId).toBe('browser-widget');
     const remove = (widgetId: string) => expect(widgetId).toBe('browser-widget');
 
+    let token: string | undefined;
     const mounting = forms.mountTurnstile({ id: 'turnstile-container' } as HTMLElement, {
-      siteKey: 'public-site-key'
+      siteKey: 'public-site-key',
+      onToken: (value) => {
+        token = value;
+      }
     });
-    setTurnstile({ ready: (callback: () => void) => callback(), render, reset, remove });
+    setTurnstile({
+      ready: () => {
+        throw new Error(
+          '[Cloudflare Turnstile] Remove async/defer from the Turnstile api.js script tag before using turnstile.ready()'
+        );
+      },
+      render,
+      reset,
+      remove
+    });
     finishTurnstileLoad();
     const mounted = await mounting;
+    expect(token).toBe('browser-token');
     mounted.reset();
     mounted.destroy();
   });

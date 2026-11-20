@@ -90,8 +90,7 @@ export type PublicFormSettings = JsonObject & {
     continueButtonText?: string;
     /**
      * Where to send the visitor after a successful submission instead of the
-     * thank-you page (read from `thankYouPageUrl` or the legacy
-     * `thank_you_page_url`). Unvalidated; `createFormSession` only follows
+     * thank-you page. Unvalidated; `createFormSession` only follows
      * absolute http(s) URLs.
      */
     thankYouPageUrl?: string;
@@ -129,6 +128,14 @@ export interface PublicFormDefinition {
      * `input.fieldMatching` stays harmless.
      */
     fieldMatching: PublicFormFieldMatch[];
+    /**
+     * The form experiment and variant this visitor is assigned to on the render (docs/website-analytics.md
+     * §7.3); absent without an assignment. The exposure is recorded by `getPublicForm` through the tracker.
+     */
+    experiment?: {
+        experiment: string;
+        variant: string;
+    } | undefined;
 }
 /** Component types that render content and never collect input. */
 export declare const PRESENTATIONAL_COMPONENT_TYPES: ReadonlySet<string>;
@@ -199,6 +206,11 @@ export interface GetPublicFormOptions {
     headers?: Record<string, string> | undefined;
     fetchImpl?: typeof fetch | undefined;
     signal?: AbortSignal | undefined;
+    /**
+     * The visitor key a form experiment assigns by. Unset, the page view's random key is sent (in memory
+     * only, never stored; none on a server). The analytics visitor id may be passed with consent.
+     */
+    visitorKey?: string | undefined;
 }
 /**
  * Loads the published definition of a public form

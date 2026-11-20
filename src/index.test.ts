@@ -72,8 +72,14 @@ describe('@moreflow/forms', () => {
 
   describe('acquisitionTracking', () => {
     function stubLandingPage() {
-      vi.stubGlobal('location', { href: 'https://example.test/?utm_source=google', search: '' });
-      vi.stubGlobal('document', { cookie: '_fbp=fb.1.123.456', referrer: '' });
+      vi.stubGlobal('location', {
+        href: 'https://example.test/?utm_source=google&gclid=g-1&fbclid=fb-1&ttclid=tt-1',
+        search: ''
+      });
+      vi.stubGlobal('document', {
+        cookie: '_fbp=fb.1.123.456; _fbc=fb.1.123.fb-1; _ttp=tt-cookie',
+        referrer: 'https://google.test/'
+      });
     }
 
     async function submitAndReadBody(options: {
@@ -98,23 +104,34 @@ describe('@moreflow/forms', () => {
       return body;
     }
 
-    it('captures nothing and stores nothing by default', async () => {
+    it('sends only the URL parameters and stores nothing without consent', async () => {
       stubLandingPage();
+      const cookieReads = vi.fn(() => '_fbp=fb.1.123.456');
+      vi.stubGlobal('document', { get cookie() { return cookieReads(); }, referrer: 'https://google.test/' });
       const storage = createMemoryStorage();
 
-      const body = await submitAndReadBody({ storage });
-
-      expect(body).not.toHaveProperty('tracking');
+      for (const acquisitionTracking of [undefined, false, () => false]) {
+        const body = await submitAndReadBody({ storage, ...(acquisitionTracking === undefined ? {} : { acquisitionTracking }) });
+        expect(body.tracking).toEqual({ utm_source: 'google', gclid: 'g-1', fbclid: 'fb-1', ttclid: 'tt-1' });
+      }
+      expect(cookieReads).not.toHaveBeenCalled();
       expect(storage.getItem('moreflow:acquisition:v1')).toBeNull();
     });
 
-    it('captures URL parameters and Meta cookies when enabled', async () => {
+    it('also captures ad cookies (_fbp, _fbc, _ttp) and keeps them with consent', async () => {
       stubLandingPage();
       const storage = createMemoryStorage();
 
       const body = await submitAndReadBody({ storage, acquisitionTracking: true });
 
-      expect(body.tracking).toMatchObject({ utm_source: 'google', fbp: 'fb.1.123.456' });
+      expect(body.tracking).toMatchObject({
+        utm_source: 'google',
+        gclid: 'g-1',
+        fbp: 'fb.1.123.456',
+        fbc: 'fb.1.123.fb-1',
+        ttp: 'tt-cookie',
+        referrer: 'https://google.test/'
+      });
       expect(storage.getItem('moreflow:acquisition:v1')).toContain('google');
     });
 
@@ -127,8 +144,8 @@ describe('@moreflow/forms', () => {
       consented = true;
       const after = await submitAndReadBody({ storage, acquisitionTracking: () => consented });
 
-      expect(before).not.toHaveProperty('tracking');
-      expect(after.tracking).toMatchObject({ utm_source: 'google' });
+      expect(before.tracking).toEqual({ utm_source: 'google', gclid: 'g-1', fbclid: 'fb-1', ttclid: 'tt-1' });
+      expect(after.tracking).toMatchObject({ utm_source: 'google', fbp: 'fb.1.123.456' });
     });
 
     it('submits the values captured under configureAcquisitionTracking', async () => {
@@ -349,6 +366,40 @@ describe('@moreflow/forms', () => {
     expect(
       createIdempotencyStore({ storage, storageKey: 'moreflow:idempotency:form-1' }).read()?.key
     ).toBe(key);
+  });
+
+  it('drops the stored answers after a terminal failure but keeps them for a retryable one', async () => {
+    const storage = createMemoryStorage();
+    const read = () =>
+      createIdempotencyStore({ storage, storageKey: 'moreflow:idempotency:form-1' }).read();
+    const keys: string[] = [];
+    const respond = (status: number, code: string) => async (_input: RequestInfo | URL, init?: RequestInit) => {
+      keys.push(new Headers(init?.headers).get('Idempotency-Key') ?? '');
+      return new Response(JSON.stringify({ error: { code } }), {
+        status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+    const submit = (fetchImpl: ReturnType<typeof respond>) =>
+      submitWithRetry({
+        formId: 'form-1',
+        input: { data: { name: 'Ada', email: 'ada@example.test' } },
+        storage,
+        maxAttempts: 1,
+        fetchImpl
+      });
+
+    await expect(submit(respond(503, 'TEMPORARY_FAILURE'))).rejects.toMatchObject({ retryable: true });
+    expect(read()?.requestBody).toContain('ada@example.test');
+
+    await expect(submit(respond(422, 'VALIDATION_FAILED'))).rejects.toMatchObject({ retryable: false });
+    const stored = read();
+    expect(stored?.requestBody).toBeUndefined();
+    expect(stored?.key).toBe(keys[0]);
+    expect(storage.getItem('moreflow:idempotency:form-1')).not.toContain('ada@example.test');
+
+    await expect(submit(respond(422, 'VALIDATION_FAILED'))).rejects.toBeInstanceOf(MoreflowFormError);
+    expect(keys[2]).toBe(keys[0]);
   });
 
   it.each([429, 503])(

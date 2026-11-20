@@ -39,20 +39,16 @@ export function normalizePhoneNumber(
   if (!trimmed || trimmed === '+') return { status: 'empty' };
 
   const defaultCountry = options.defaultCountry ?? DEFAULT_PHONE_COUNTRY;
-  const ownCountryCode = parseBareOwnCountryCode(trimmed, defaultCountry);
-  if (ownCountryCode) return { status: 'valid', e164: ownCountryCode };
-
   // extract: false rejects phone numbers embedded in surrounding prose; only
   // an input that is entirely one phone number (plus formatting) is valid.
-  const parsed = parsePhoneNumberFromString(trimmed, {
-    defaultCountry,
-    extract: false
-  });
+  const parsed =
+    parseBareOwnCountryCode(trimmed, defaultCountry) ??
+    parsePhoneNumberFromString(trimmed, { defaultCountry, extract: false });
   if (!parsed?.isValid()) return { status: 'invalid', input: trimmed };
   return { status: 'valid', e164: withoutDoubledCountryCode(parsed) };
 }
 
-function parseBareOwnCountryCode(trimmed: string, country: CountryCode): string | undefined {
+function parseBareOwnCountryCode(trimmed: string, country: CountryCode): PhoneNumber | undefined {
   const digits = trimmed.replace(/[^\d]/g, '');
   if (
     trimmed.startsWith('+') ||
@@ -68,7 +64,7 @@ function parseBareOwnCountryCode(trimmed: string, country: CountryCode): string 
     return undefined;
   }
   const parsed = parsePhoneNumberFromString(`+${digits}`, { extract: false });
-  return parsed?.isValid() ? parsed.number : undefined;
+  return parsed?.isValid() ? parsed : undefined;
 }
 
 /**

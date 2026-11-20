@@ -4,8 +4,9 @@ import type { PublicFormDefinition, PublicFormRegularPage, PublicFormThankYouPag
 import type { AcquisitionTrackingSetting } from './internal/acquisition-tracking';
 import type { JsonObject, JsonValue } from './json';
 import type { FormFormality, FormMessageLanguage, FormMessageOverrides } from './messages';
+import type { PhoneVerificationBotChallengeOptions } from './phone-verification';
 import type { FormValidationCode } from './validation';
-export interface FormSessionOptions {
+export interface FormSessionOptions extends PhoneVerificationBotChallengeOptions {
     /**
      * The Moreflow API origin. Defaults to `https://api.moreflow.io`; pass `''`
      * to call your page's own origin behind a same-origin proxy.
@@ -19,7 +20,7 @@ export interface FormSessionOptions {
     storage?: StorageLike | undefined;
     /** Render and submit language. Defaults to `definition.language`, then `'de'`. */
     language?: FormMessageLanguage | undefined;
-    /** German copy with "Sie" (`'formal'`, the default) or "du" (`'informal'`). */
+    /** German copy with "du" (`'informal'`, the default) or "Sie" (`'formal'`). */
     formality?: FormFormality | undefined;
     /** Your copy for message keys, validation codes and error codes. */
     messages?: FormMessageOverrides | undefined;
@@ -33,12 +34,14 @@ export interface FormSessionOptions {
     defaultCountry?: CountryCode | undefined;
     initialValues?: Readonly<Record<string, JsonValue | undefined>> | undefined;
     /**
-     * Captures acquisition tracking at submit time (see `submitWithRetry`). Off
-     * by default; pass `true` or a function that returns `true` once the visitor
-     * agreed in your consent banner.
+     * The visitor's tracking consent at submit time (see `submitWithRetry`).
+     * Without consent (the default) a submission carries only the UTM parameters
+     * and ad click ids of the page URL, with no cookie or storage access; pass
+     * `true` or a function that returns `true` once the visitor agreed in your
+     * consent banner to also capture ad cookies and keep the values in storage.
      */
     acquisitionTracking?: AcquisitionTrackingSetting | undefined;
-    /** Capture options or a replacement callback; used only when acquisition tracking is on. */
+    /** Capture options or a replacement callback; used only with tracking consent. */
     trackingCapture?: TrackingCaptureOptions | (() => AcquisitionTracking | undefined) | undefined;
     utmParams?: JsonObject | undefined;
     consent?: JsonObject | undefined;

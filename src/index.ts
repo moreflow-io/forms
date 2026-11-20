@@ -8,7 +8,6 @@ import {
   trackingKeys
 } from '@moreflow/tracking';
 import type { AcquisitionTrackingSetting } from './internal/acquisition-tracking';
-export { isMoreflowError } from './internal/errors';
 
 export type {
   AcquisitionTracking,
@@ -17,6 +16,8 @@ export type {
   TrackingCaptureOptions,
   TrackingKey
 } from '@moreflow/tracking';
+export type { CreateFormsClientOptions, FormsClient } from './client';
+export { createFormsClient } from './client';
 export type {
   GetPublicFormOptions,
   PartitionedFormPages,
@@ -60,6 +61,7 @@ export {
   serverErrorCode,
   serverErrorMessage
 } from './error';
+export { isMoreflowError } from './internal/errors';
 export type { JsonObject, JsonPrimitive, JsonValue } from './json';
 export type {
   FormCopyOptions,
@@ -88,6 +90,7 @@ export {
 } from './phone';
 export type {
   CheckPhoneVerificationOptions,
+  PhoneVerificationBotChallengeOptions,
   PhoneVerificationChallenge,
   PhoneVerificationRequestOptions,
   PhoneVerificationResult
@@ -143,5 +146,3 @@ export {
   resolveStorage,
   trackingKeys
 };
-export type { CreateFormsClientOptions, FormsClient } from './client';
-export { createFormsClient } from './client';

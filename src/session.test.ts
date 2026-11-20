@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMemoryStorage, normalizePublicFormDefinition, type PublicFormDefinition } from './index';
-import { createFormSession, type FormSessionOptions } from './session';
+import { createFormSession, type FormSession, type FormSessionOptions } from './session';
 
 function definitionWith(overrides: Record<string, unknown> = {}, components?: unknown[]) {
   return normalizePublicFormDefinition({
@@ -71,6 +71,38 @@ const json = (body: unknown, status = 200) =>
 
 function session(definition: PublicFormDefinition, options: FormSessionOptions = {}) {
   return createFormSession(definition, { baseUrl: '', storage: createMemoryStorage(), ...options });
+}
+
+/**
+ * A fetch that holds every request until its signal aborts, so a test can reset or
+ * dispose the session while the request is in flight. `answer` may reply first.
+ */
+function hangUntilAborted(answer?: (init: RequestInit | undefined) => Response | undefined) {
+  let markStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    const answered = answer?.(init);
+    if (answered) return Promise.resolve(answered);
+    markStarted();
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () =>
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+      );
+    });
+  });
+  return { fetchImpl, started };
+}
+
+function phoneSession(fetchImpl: FormSessionOptions['fetchImpl']) {
+  const form = session(
+    definitionWith({}, [{ id: 'phone', type: 'phone_number', required: true, verifyPhone: true }]),
+    { fetchImpl }
+  );
+  form.setValue('topic', 'MPU');
+  form.setValue('phone', '+49 170 1234567');
+  return form;
 }
 
 async function fillToSubmit(form: ReturnType<typeof session>) {
@@ -204,7 +236,7 @@ describe('createFormSession', () => {
 
     expect(await form.submit()).toBe(false);
     expect(form.getSnapshot()).toMatchObject({ stepIndex: 1, focusComponentId: 'name' });
-    expect(form.getSnapshot().issues.privacy?.message).toBe('Ihre Einwilligung ist erforderlich.');
+    expect(form.getSnapshot().issues.privacy?.message).toBe('Deine Einwilligung ist erforderlich.');
 
     form.setValue('topic', undefined);
     expect(await form.submit()).toBe(false);
@@ -242,7 +274,7 @@ describe('createFormSession', () => {
     expect(calls).toHaveLength(0);
     expect(form.getSnapshot().error).toMatchObject({
       code: 'ANTI_SPAM_REQUIRED',
-      message: 'Bitte warten Sie, bis der Spamschutz geladen ist, und senden Sie das Formular erneut.'
+      message: 'Bitte warte, bis der Spamschutz geladen ist, und sende das Formular erneut.'
     });
 
     form.turnstile.setToken('token-1');
@@ -253,7 +285,7 @@ describe('createFormSession', () => {
       turnstile: { token: null, status: 'loading' },
       error: {
         code: 'ANTI_SPAM_INVALID',
-        message: 'Der Spamschutz konnte Ihre Anfrage nicht bestätigen. Bitte versuchen Sie es erneut.'
+        message: 'Der Spamschutz konnte deine Anfrage nicht bestätigen. Bitte versuche es erneut.'
       }
     });
   });
@@ -280,7 +312,7 @@ describe('createFormSession', () => {
       stepIndex: 0,
       focusComponentId: 'topic',
       issues: { topic: { code: 'REQUIRED', message: 'Dieses Feld ist erforderlich.' } },
-      error: { code: 'VALIDATION_ERROR', message: 'Bitte füllen Sie alle Pflichtfelder aus.' }
+      error: { code: 'VALIDATION_ERROR', message: 'Bitte fülle alle Pflichtfelder aus.' }
     });
   });
 
@@ -306,7 +338,7 @@ describe('createFormSession', () => {
       stepIndex: 1,
       focusComponentId: 'privacy',
       issues: {
-        privacy: { code: 'CONSENT_REQUIRED', message: 'Ihre Einwilligung ist erforderlich.' },
+        privacy: { code: 'CONSENT_REQUIRED', message: 'Deine Einwilligung ist erforderlich.' },
         email: { code: 'REQUIRED', message: 'Dieses Feld ist erforderlich.' }
       }
     });
@@ -403,5 +435,72 @@ describe('createFormSession', () => {
       values: { topic: 'MPU' },
       result: null
     });
+  });
+
+  it.each([
+    ['reset', (form: FormSession) => form.reset()],
+    ['dispose', (form: FormSession) => form.dispose()]
+  ])('drops an aborted submit after %s instead of writing it as an error', async (_name, abort) => {
+    const { fetchImpl, started } = hangUntilAborted();
+    const form = session(definitionWith(), { fetchImpl });
+    await fillToSubmit(form);
+
+    const pending = form.submit();
+    await started;
+    abort(form);
+
+    expect(await pending).toBe(false);
+    expect(form.getSnapshot().error).toBeNull();
+    expect(form.getSnapshot().status).not.toBe('submitted');
+  });
+
+  it.each([
+    ['reset', (form: FormSession) => form.reset()],
+    ['dispose', (form: FormSession) => form.dispose()]
+  ])('drops an aborted code send after %s instead of writing it as an error', async (_name, abort) => {
+    const { fetchImpl, started } = hangUntilAborted();
+    const form = phoneSession(fetchImpl);
+
+    const pending = form.phoneVerification.sendCode();
+    await started;
+    abort(form);
+
+    expect(await pending).toBe(false);
+    expect(form.getSnapshot().error).toBeNull();
+    expect(form.getSnapshot().phoneVerification).toMatchObject({ error: null });
+    expect(form.getSnapshot().phoneVerification?.status).not.toBe('code_sent');
+  });
+
+  it.each([
+    ['reset', (form: FormSession) => form.reset()],
+    ['dispose', (form: FormSession) => form.dispose()]
+  ])('drops an aborted code check after %s instead of writing it as an error', async (_name, abort) => {
+    const { fetchImpl, started } = hangUntilAborted((init) =>
+      init?.method === 'PUT' ? json({ challengeId: 'challenge-1' }) : undefined
+    );
+    const form = phoneSession(fetchImpl);
+    expect(await form.phoneVerification.sendCode()).toBe(true);
+    form.phoneVerification.setCode('123456');
+
+    const pending = form.phoneVerification.verify();
+    await started;
+    abort(form);
+
+    expect(await pending).toBe(false);
+    expect(form.getSnapshot().phoneVerification).toMatchObject({ error: null });
+    expect(form.getSnapshot().phoneVerification?.status).not.toBe('code_sent');
+  });
+
+  it('keeps a code that arrives after dispose out of the session', async () => {
+    let form: FormSession | undefined;
+    const fetchImpl = vi.fn(async () => {
+      form?.dispose();
+      return json({ challengeId: 'challenge-1' });
+    });
+    form = phoneSession(fetchImpl);
+
+    expect(await form.phoneVerification.sendCode()).toBe(false);
+    expect(form.getSnapshot().phoneVerification?.status).not.toBe('code_sent');
+    expect(form.getSnapshot().phoneVerification?.phoneNumber).toBeUndefined();
   });
 });

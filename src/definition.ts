@@ -10,6 +10,7 @@ import { readResponseBody, resolveBaseUrl, resolveFetch } from './internal/http'
 import { isRecord } from './internal/values';
 import type { JsonObject } from './json';
 import type { FormMessageLanguage } from './messages';
+import { experimentFromRender, pageVisitorKey, rememberFormExperiment, trackExposure } from './form-experiment';
 
 export interface PublicFormOption {
   id?: string | undefined;
@@ -112,8 +113,7 @@ export type PublicFormSettings = JsonObject & {
   continueButtonText?: string;
   /**
    * Where to send the visitor after a successful submission instead of the
-   * thank-you page (read from `thankYouPageUrl` or the legacy
-   * `thank_you_page_url`). Unvalidated; `createFormSession` only follows
+   * thank-you page. Unvalidated; `createFormSession` only follows
    * absolute http(s) URLs.
    */
   thankYouPageUrl?: string;
@@ -152,6 +152,11 @@ export interface PublicFormDefinition {
    * `input.fieldMatching` stays harmless.
    */
   fieldMatching: PublicFormFieldMatch[];
+  /**
+   * The form experiment and variant this visitor is assigned to on the render (docs/website-analytics.md
+   * §7.3); absent without an assignment. The exposure is recorded by `getPublicForm` through the tracker.
+   */
+  experiment?: { experiment: string; variant: string } | undefined;
 }
 
 /** Component types that render content and never collect input. */
@@ -350,7 +355,7 @@ function settingsFrom(value: unknown): PublicFormSettings {
   for (const key of ['submitButtonText', 'continueButtonText'] as const) {
     if (typeof settings[key] !== 'string') delete settings[key];
   }
-  const thankYouPageUrl = stringValue(settings.thankYouPageUrl) ?? stringValue(settings.thank_you_page_url);
+  const thankYouPageUrl = stringValue(settings.thankYouPageUrl);
   if (thankYouPageUrl) settings.thankYouPageUrl = thankYouPageUrl.trim();
   else delete settings.thankYouPageUrl;
   return settings;
@@ -469,6 +474,11 @@ export interface GetPublicFormOptions {
   headers?: Record<string, string> | undefined;
   fetchImpl?: typeof fetch | undefined;
   signal?: AbortSignal | undefined;
+  /**
+   * The visitor key a form experiment assigns by. Unset, the page view's random key is sent (in memory
+   * only, never stored; none on a server). The analytics visitor id may be passed with consent.
+   */
+  visitorKey?: string | undefined;
 }
 
 /**
@@ -487,7 +497,9 @@ export async function getPublicForm(options: GetPublicFormOptions): Promise<Publ
 
   const headers = new Headers(options.headers);
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
-  const url = `${resolveBaseUrl({ baseUrl: options.baseUrl })}/v1/forms/${encodeURIComponent(options.formId)}`;
+  const visitorKey = options.visitorKey ?? pageVisitorKey();
+  const query = visitorKey ? `?${new URLSearchParams({ visitorKey }).toString()}` : '';
+  const url = `${resolveBaseUrl({ baseUrl: options.baseUrl })}/v1/forms/${encodeURIComponent(options.formId)}${query}`;
 
   let response: Response;
   try {
@@ -517,7 +529,12 @@ export async function getPublicForm(options: GetPublicFormOptions): Promise<Publ
       })
     );
   }
-  return normalizePublicFormDefinition(body, { formId: options.formId });
+  const experiment = experimentFromRender(body);
+  // One render, one exposure; the submission of this form then carries the assigned variant.
+  rememberFormExperiment(options.formId, experiment);
+  if (experiment) trackExposure(experiment);
+  const definition = normalizePublicFormDefinition(body, { formId: options.formId });
+  return experiment ? { ...definition, experiment } : definition;
 }
 
 export interface PartitionedFormPages {

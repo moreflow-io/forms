@@ -1,5 +1,6 @@
 import { type AcquisitionTracking, type StorageLike, type TrackingCaptureOptions } from '@moreflow/tracking';
 import { type AcquisitionTrackingSetting } from './internal/acquisition-tracking';
+import { type PageExperimentAssignment } from './internal/page-experiments';
 import type { JsonObject, JsonValue } from './json';
 import type { FormMessageLanguage } from './messages';
 /** @deprecated Use AcquisitionTracking from @moreflow/tracking for new shared integrations. */
@@ -16,6 +17,13 @@ export interface IdempotencyAttempt {
 export interface IdempotencyStore {
     prepare(payload: unknown, createRequestBody?: (key: string) => string): Promise<IdempotencyAttempt>;
     read(): IdempotencyAttempt | null;
+    /**
+     * Drops the persisted request body (the respondent's answers) but keeps the
+     * key and payload hash, so a resubmission of the same payload still reuses
+     * the key. Used after a terminal server answer, where no byte-exact replay
+     * is needed.
+     */
+    forgetRequestBody(): void;
     clear(): void;
 }
 export declare function createIdempotencyStore(options: {
@@ -41,20 +49,30 @@ export interface PublicFormSubmissionInput {
     locale?: FormMessageLanguage | undefined;
     spam?: JsonObject | undefined;
     formEntryId?: string | undefined;
+    /**
+     * The experiment variants the visitor saw. Unset, the page's assignments from the tracker's memory
+     * are sent (`pageExperimentAssignments`, never stored by the SDK); `[]` sends none. Moreflow stores
+     * them with the lead only while the account allows it.
+     */
+    experimentVariants?: PageExperimentAssignment[] | undefined;
 }
 export interface SubmitWithRetryOptions {
     formId: string;
     input: PublicFormSubmissionInput;
     /**
-     * Captures acquisition tracking when no `input.tracking` is passed. Off by
-     * default because the capture reads Meta cookies and writes browser storage,
-     * which needs the visitor's consent in the EU.
+     * The visitor's tracking consent, used when no `input.tracking` is passed.
+     * Without consent (the default) the submission carries only the UTM
+     * parameters and ad click ids of the current page URL, with no cookie or
+     * storage access. Pass `true`, or a function that returns `true` once the
+     * visitor agreed in your consent banner, to also capture ad cookies
+     * (`_fbp`, `_fbc`, `_ttp`), referrer and landing page, kept in browser storage.
      */
     acquisitionTracking?: AcquisitionTrackingSetting | undefined;
     /**
-     * Capture options or a callback replacing the built-in capture. Unset
-     * options use `configureAcquisitionTracking()`, so a page that configures it once
-     * submits the same values it captures on every route change.
+     * Capture options or a callback replacing the built-in capture; used only
+     * with consent. Unset options use `configureAcquisitionTracking()`, so a page
+     * that configures it once submits the same values it captures on every
+     * route change. Without consent only `location` is read from the options.
      */
     trackingCapture?: TrackingCaptureOptions | (() => PublicFormTracking | undefined) | undefined;
     /**

@@ -290,7 +290,7 @@ describe('validationMessage', () => {
     const issue = validateComponentValue(component({ type: 'email', required: true }), 'nope');
     expect(issue).toMatchObject({ code: 'INVALID_EMAIL', message: 'Please enter a valid email address.' });
     if (!issue) throw new Error('Expected an issue.');
-    expect(validationMessage(issue)).toBe('Bitte geben Sie eine gültige E-Mail-Adresse ein.');
+    expect(validationMessage(issue)).toBe('Bitte gib eine gültige E-Mail-Adresse ein.');
     expect(validationMessage(issue, { language: 'en' })).toBe(issue.message);
 
     const codes = ['REQUIRED', 'INVALID_EMAIL', 'INVALID_PHONE_NUMBER', 'CONSENT_REQUIRED', 'INCOMPLETE_ADDRESS'] as const;

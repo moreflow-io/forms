@@ -18,7 +18,6 @@ export type MountedTurnstile = {
 };
 
 type TurnstileApi = {
-  ready(callback: () => void): void;
   render(container: HTMLElement, options: Record<string, unknown>): string;
   reset(widgetId: string): void;
   remove(widgetId: string): void;
@@ -87,22 +86,17 @@ export async function mountTurnstile(
     throw new MoreflowFormError(validationErrorInit('siteKey', 'A Turnstile siteKey is required.'));
   }
   const api = await loadTurnstileScript();
-  const widgetId = await new Promise<string>((resolve) => {
-    api.ready(() => {
-      resolve(
-        api.render(container, {
-          sitekey: options.siteKey,
-          action: options.action ?? 'public_form',
-          appearance: 'interaction-only',
-          execution: 'render',
-          theme: 'auto',
-          'response-field': false,
-          callback: options.onToken,
-          'expired-callback': options.onExpired,
-          'error-callback': options.onError
-        })
-      );
-    });
+  // The async explicit-render script is usable after its load event.
+  const widgetId = api.render(container, {
+    sitekey: options.siteKey,
+    action: options.action ?? 'public_form',
+    appearance: 'interaction-only',
+    execution: 'render',
+    theme: 'auto',
+    'response-field': false,
+    callback: options.onToken,
+    'expired-callback': options.onExpired,
+    'error-callback': options.onError
   });
   let destroyed = false;
   return {

@@ -8,7 +8,8 @@ import {
 import { MoreflowFormError } from './error';
 import {
   type AcquisitionTrackingSetting,
-  acquisitionTrackingEnabled
+  acquisitionTrackingConsented,
+  captureUrlAcquisitionTracking
 } from './internal/acquisition-tracking';
 import {
   abortedErrorInit,
@@ -19,7 +20,12 @@ import {
   validationErrorInit
 } from './internal/errors';
 import { readResponseBody, resolveBaseUrl, resolveFetch } from './internal/http';
+import { type PageExperimentAssignment, pageExperimentAssignments } from './internal/page-experiments';
+import { formExperimentFor, mergeExperimentVariants } from './form-experiment';
+import { trackWebsiteConversion } from './internal/conversion-tracking';
 import { createRandomId } from './internal/values';
+import { identifyWebsiteVisitor } from './internal/visitor-identify';
+import { pageVisitReference } from './internal/visit-reference';
 import type { JsonObject, JsonValue } from './json';
 import type { FormMessageLanguage } from './messages';
 
@@ -84,6 +90,13 @@ export interface IdempotencyStore {
     createRequestBody?: (key: string) => string
   ): Promise<IdempotencyAttempt>;
   read(): IdempotencyAttempt | null;
+  /**
+   * Drops the persisted request body (the respondent's answers) but keeps the
+   * key and payload hash, so a resubmission of the same payload still reuses
+   * the key. Used after a terminal server answer, where no byte-exact replay
+   * is needed.
+   */
+  forgetRequestBody(): void;
   clear(): void;
 }
 
@@ -133,6 +146,11 @@ export function createIdempotencyStore(options: {
       current = parseAttempt(storage.getItem(options.storageKey));
       return current;
     },
+    forgetRequestBody() {
+      if (!current || current.requestBody === undefined) return;
+      current = { key: current.key, payloadHash: current.payloadHash };
+      storage.setItem(options.storageKey, JSON.stringify(current));
+    },
     clear() {
       current = null;
       storage.removeItem(options.storageKey);
@@ -159,21 +177,31 @@ export interface PublicFormSubmissionInput {
   locale?: FormMessageLanguage | undefined;
   spam?: JsonObject | undefined;
   formEntryId?: string | undefined;
+  /**
+   * The experiment variants the visitor saw. Unset, the page's assignments from the tracker's memory
+   * are sent (`pageExperimentAssignments`, never stored by the SDK); `[]` sends none. Moreflow stores
+   * them with the lead only while the account allows it.
+   */
+  experimentVariants?: PageExperimentAssignment[] | undefined;
 }
 
 export interface SubmitWithRetryOptions {
   formId: string;
   input: PublicFormSubmissionInput;
   /**
-   * Captures acquisition tracking when no `input.tracking` is passed. Off by
-   * default because the capture reads Meta cookies and writes browser storage,
-   * which needs the visitor's consent in the EU.
+   * The visitor's tracking consent, used when no `input.tracking` is passed.
+   * Without consent (the default) the submission carries only the UTM
+   * parameters and ad click ids of the current page URL, with no cookie or
+   * storage access. Pass `true`, or a function that returns `true` once the
+   * visitor agreed in your consent banner, to also capture ad cookies
+   * (`_fbp`, `_fbc`, `_ttp`), referrer and landing page, kept in browser storage.
    */
   acquisitionTracking?: AcquisitionTrackingSetting | undefined;
   /**
-   * Capture options or a callback replacing the built-in capture. Unset
-   * options use `configureAcquisitionTracking()`, so a page that configures it once
-   * submits the same values it captures on every route change.
+   * Capture options or a callback replacing the built-in capture; used only
+   * with consent. Unset options use `configureAcquisitionTracking()`, so a page
+   * that configures it once submits the same values it captures on every
+   * route change. Without consent only `location` is read from the options.
    */
   trackingCapture?: TrackingCaptureOptions | (() => PublicFormTracking | undefined) | undefined;
   /**
@@ -253,16 +281,25 @@ export async function submitWithRetry<T = unknown>(
   // idempotency state or retry work so invalid caller input fails immediately.
   const headers = submissionHeaders(options);
 
-  const { tracking: inputTracking, ...inputFields } = options.input;
-  const inputWithoutTracking = { ...inputFields, locale: inputFields.locale ?? 'de' };
+  const { tracking: inputTracking, experimentVariants: inputVariants, ...inputFields } = options.input;
+  const experimentVariants = inputVariants ?? mergeExperimentVariants(formExperimentFor(options.formId), pageExperimentAssignments());
+  // The visit the page view's pageview is linked to (docs/website-analytics.md §8.1); absent without a tracker reference.
+  const visit = pageVisitReference();
+  const inputWithoutTracking = {
+    ...inputFields,
+    locale: inputFields.locale ?? 'de',
+    ...(experimentVariants.length > 0 ? { experimentVariants } : {}),
+    ...(visit ? { visit } : {})
+  };
   const explicitTracking = inputTracking;
+  const capture = options.trackingCapture;
   const capturedTracking =
     explicitTracking ??
-    (acquisitionTrackingEnabled(options.acquisitionTracking)
-      ? typeof options.trackingCapture === 'function'
-        ? options.trackingCapture()
-        : captureAcquisitionTracking(options.trackingCapture)
-      : undefined);
+    (acquisitionTrackingConsented(options.acquisitionTracking)
+      ? typeof capture === 'function'
+        ? capture()
+        : captureAcquisitionTracking(capture)
+      : captureUrlAcquisitionTracking(typeof capture === 'function' ? undefined : capture?.location));
   const tracking = capturedTracking ? Object.freeze({ ...capturedTracking }) : undefined;
   // Everything except tracking participates in the fingerprint: a changed
   // consent, locale, spam, or formEntryId is a materially different submission and
@@ -278,12 +315,11 @@ export async function submitWithRetry<T = unknown>(
   // The serialized body is persisted with the attempt so a later call with the
   // same business payload replays the exact same bytes (including the tracking
   // snapshot captured when the attempt was first created).
-  const attempt = await store.prepare(fingerprint, (key) =>
-    JSON.stringify({ ...inputWithoutTracking, tracking, idempotencyKey: key })
+  // The key travels only as the Idempotency-Key header (moreflow-o5t0ga.8).
+  const attempt = await store.prepare(fingerprint, () =>
+    JSON.stringify({ ...inputWithoutTracking, tracking })
   );
-  const body =
-    attempt.requestBody ??
-    JSON.stringify({ ...inputWithoutTracking, tracking, idempotencyKey: attempt.key });
+  const body = attempt.requestBody ?? JSON.stringify({ ...inputWithoutTracking, tracking });
   const url = `${resolveBaseUrl({ baseUrl: options.baseUrl })}/v1/forms/${encodeURIComponent(options.formId)}/submissions`;
   headers.set('Idempotency-Key', attempt.key);
 
@@ -304,6 +340,10 @@ export async function submitWithRetry<T = unknown>(
       const responseBody = await readResponseBody(response);
       if (response.ok) {
         store.clear();
+        // Links the visitor to the matched CRM contact; the tracker refuses without analytics consent.
+        identifyWebsiteVisitor((responseBody as { clientId?: unknown } | null)?.clientId);
+        // The anonymous conversion: the form id only, sent with or without consent.
+        trackWebsiteConversion('form_submitted', { form_id: options.formId });
         return {
           data: responseBody as T,
           response,
@@ -312,13 +352,17 @@ export async function submitWithRetry<T = unknown>(
         };
       }
 
-      throw new MoreflowFormError(
+      const failure = new MoreflowFormError(
         operationErrorInit({
           responseBody,
           status: response.status,
           fallbackMessage: 'Moreflow form submission failed'
         })
       );
+      // A terminal answer needs no byte-exact replay: stop keeping the answers
+      // in browser storage, keep only the key for idempotent resubmission.
+      if (!failure.retryable) store.forgetRequestBody();
+      throw failure;
     } catch (error) {
       if (error instanceof MoreflowFormError) throw error;
       if (options.signal?.aborted) {

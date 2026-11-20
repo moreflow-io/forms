@@ -1,5 +1,8 @@
 import type { CountryCode } from 'libphonenumber-js';
-export interface PhoneVerificationRequestOptions {
+import { type OperationChallengeOptions } from './internal/operation-challenge';
+/** Proof comes from the API-hosted frame; form submission widgets remain independent. */
+export type PhoneVerificationBotChallengeOptions = Omit<OperationChallengeOptions, 'baseUrl'>;
+export interface PhoneVerificationRequestOptions extends PhoneVerificationBotChallengeOptions {
     formId: string;
     /** Raw phone input; normalized to E.164 with `defaultCountry` before sending. */
     phoneNumber: string;
@@ -35,8 +38,8 @@ export interface PhoneVerificationResult {
  * (`PUT /v1/forms/{formId}/phone-verification`). The server texts a code to
  * the number and returns a challenge id for {@link checkPhoneVerification}.
  *
- * Each call sends a real SMS, so the helper never retries by itself; inspect
- * `MoreflowFormError.retryable` before resending.
+ * The helper retries only a definitive bot-challenge refusal, once, with fresh
+ * proof. It never retries ambiguous SMS/provider/network errors automatically.
  */
 export declare function sendPhoneVerification(options: PhoneVerificationRequestOptions): Promise<PhoneVerificationChallenge>;
 /**

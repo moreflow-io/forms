@@ -40,7 +40,7 @@ The other public SDKs, the agent plugins, and the HTTP API are listed in the
 For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler, load the browser build before the script that uses it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.9.2/dist/browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@moreflow/forms@0.10.0/dist/browser.js"></script>
 <script>
   const forms = window.MoreflowForms;
 
@@ -52,7 +52,8 @@ For HTML, WordPress, Webflow, Wix, and other pages without a JavaScript bundler,
       formId: '00000000-0000-4000-8000-000000000001',
       input: { data: formData },
       baseUrl: 'https://api.moreflow.io',
-      // Attach UTM and ad click ids only after the visitor consented (see "Acquisition tracking and consent").
+      // Without consent only the page URL's UTM parameters and click ids are sent; consent adds
+      // ad cookies and stored landing values (see "Acquisition tracking and consent").
       acquisitionTracking: () => window.visitorConsentedToMarketing === true
     });
   }
@@ -80,7 +81,7 @@ const forms = createFormsClient({
   acquisitionTracking: () => consentManager.hasMarketingConsent(),
   trackingCapture: { model: 'first-touch' },
   fetchImpl: fetch,
-  formality: 'informal'
+  formality: 'formal'
 });
 const definition = await forms.getPublicForm({ formId });
 const session = forms.createFormSession(definition);
@@ -132,12 +133,13 @@ code is only presentation.
 - **Result**: after `status: 'submitted'`, `state.result` holds the server's
   submission, the `thankYou` page and a validated `redirectUrl` from the form's
   thank-you page setting. Navigate there yourself.
-- **Copy**: `language`, `formality: 'informal'` for German "du" (default "Sie") and
+- **Copy**: `language`, `formality: 'formal'` for German "Sie" (default "du") and
   `messages` (`forms`, `validation` and `errors` overrides) apply to every text the
   session produces. `session.message(label)` resolves labels and placeholders with
   the same overrides; `session.marketingConsentText()` returns the marketing box text.
-- `acquisitionTracking`, `trackingCapture` (capture options or a consent-gated
-  callback read at submit time),
+- `acquisitionTracking` (the visitor's tracking consent; without it only the
+  page URL's UTM parameters and click ids are sent), `trackingCapture` (capture
+  options or a consent-gated callback read at submit time),
   `utmParams`, `consent`, `defaultCountry`, `initialValues`, `baseUrl` and
   `fetchImpl` are passed through to the low-level helpers.
 
@@ -169,7 +171,7 @@ const messages = {
 const CHECKBOXES = new Set(['privacy_policy', 'privacy_checkbox', 'tracking_consent', 'marketing_consent']);
 
 export function LeadForm({ formId }: { formId: string }) {
-  const form = useMoreflowForm({ formId, formality: 'informal', messages });
+  const form = useMoreflowForm({ formId, messages });
   const focusId = form.state?.focusComponentId;
   useEffect(() => {
     if (focusId) document.getElementById(focusId)?.focus();
@@ -294,7 +296,8 @@ function Block({ item }: { item: PublicFormThankYouItem }) {
 }
 ```
 
-Pass `acquisitionTracking: () => consentGiven` for attribution. To provide your
+Pass `acquisitionTracking: () => consentGiven` for full attribution; without
+consent only the page URL's UTM parameters and click ids are sent. To provide your
 own values, add `trackingCapture: getMyTrackingData` (a function read at submit
 time only after consent). The session is created
 once per definition; remount the component (for example with a `key`) to change
@@ -306,7 +309,7 @@ Without React, the same store drives any UI:
 import { createFormSession, getPublicForm } from '@moreflow/forms';
 
 const definition = await getPublicForm({ formId });
-const session = createFormSession(definition, { formality: 'informal' });
+const session = createFormSession(definition, { formality: 'formal' });
 session.subscribe(() => render(session.getSnapshot()));
 render(session.getSnapshot());
 ```
@@ -856,7 +859,7 @@ resolveFormMessage('Firmenname'); // 'Firmenname' (literal text is untouched)
 resolveFormMessage('forms.privacy.consentLabel', { params: { companyName: 'ACME GmbH' } });
 ```
 
-Pass `messages` to replace copy for the language you render in. The same map works for `resolveFormMessage` (`messages.forms`, keyed by the dotted key or its message id), `validationMessage` (`messages.validation`, by code), `formErrorMessage` (`messages.errors`, by code) and `createFormSession`. `formality: 'informal'` switches the German validation and error copy from "Sie" to "du":
+Pass `messages` to replace copy for the language you render in. The same map works for `resolveFormMessage` (`messages.forms`, keyed by the dotted key or its message id), `validationMessage` (`messages.validation`, by code), `formErrorMessage` (`messages.errors`, by code) and `createFormSession`. German validation and error copy uses "du"; `formality: 'formal'` switches it to "Sie":
 
 ```ts
 const messages = {
@@ -865,7 +868,8 @@ const messages = {
   errors: { FORM_NOT_FOUND: 'Dieses Angebot gibt es nicht mehr.' }
 };
 resolveFormMessage('forms.settings.submitButton', { messages }); // 'Kostenlos anfragen'
-validationMessage({ code: 'INVALID_EMAIL' }, { formality: 'informal' }); // 'Bitte gib eine gültige E-Mail-Adresse ein.'
+validationMessage({ code: 'INVALID_EMAIL' }); // 'Bitte gib eine gültige E-Mail-Adresse ein.'
+validationMessage({ code: 'INVALID_EMAIL' }, { formality: 'formal' }); // 'Bitte geben Sie eine gültige E-Mail-Adresse ein.'
 ```
 
 The catalogs are exported as `formMessageCatalogs` if you want to merge your own overrides on top.
@@ -888,20 +892,22 @@ const result = await submitWithRetry({
 
 ### Acquisition tracking and consent
 
-`submitWithRetry` attaches no acquisition tracking unless you allow it. `acquisitionTracking: true`, or a function that returns `true`, makes it call `captureAcquisitionTracking()` (re-exported from `@moreflow/tracking`) when `input.tracking` is absent. The capture reads the UTM parameters and ad click ids from the page URL, Meta's `_fbp`/`_fbc` cookies, `document.referrer`, and `navigator.userAgent`, and keeps them in `sessionStorage` under `moreflow:acquisition:v1`, so a landing page and a form page in the same tab and on the same origin share them. Reading those cookies and writing that storage needs the visitor's consent in the EU (§ 25 TDDDG in Germany), so tie the option to your consent banner. A function is asked on every call, so a visitor who consents after the page loaded is tracked from the next submission on.
+`acquisitionTracking` is the visitor's tracking consent, read when `input.tracking` is absent. Without consent (the default, `false`, or a function returning `false`) a submission carries only the UTM parameters (`utm_*`), Google campaign parameters (`gad_campaignid`, `gad_source`), and ad click ids (`gclid`, `gbraid`, `wbraid`, `fbclid`, `ttclid`, `oppref`) of the current page URL. It reads no cookies, no referrer or user agent, writes no browser storage, and keeps nothing for a later page.
+
+`acquisitionTracking: true`, or a function that returns `true` once the visitor agreed, makes it call `captureAcquisitionTracking()` (re-exported from `@moreflow/tracking`) instead. That capture also reads Meta's `_fbp`/`_fbc` and TikTok's `_ttp` cookies, `document.referrer`, and `navigator.userAgent`, and keeps the first and last touch in `localStorage` under `moreflow:acquisition:v1` for 90 days, so a submission in a later visit on the same origin still carries the ad click id of an earlier visit (the last touch is sent). Reading those cookies and writing that storage needs the visitor's consent in the EU (§ 25 TDDDG in Germany), so tie the option to your consent banner. A function is asked on every call, so a visitor who consents after the page loaded is tracked fully from the next submission on.
 
 The same `acquisitionTracking` option exists on `@moreflow/chatbots` and `@moreflow/meetings`. Explicit payload `input.tracking` values are always sent as given, independently of the capture gate. To remove captured values after a visitor withdraws consent, call `clearAcquisitionTracking()`.
 
-One `configureAcquisitionTracking({ persistence, model, ttlDays })` call at startup (re-exported from `@moreflow/tracking`) applies to these captures and to the ones your own page makes, so a site that captures on every route change and enables `acquisitionTracking: true` here sends the same landing values without a wrapper. Pass `trackingCapture: { model: 'last-touch', persistence: 'local' }` to override capture options, or `trackingCapture: () => myTrackingData` to supply values at submit time. Both forms run only while `acquisitionTracking` permits capture. The form's `storage` option is used only for the idempotency record. See the [`@moreflow/tracking` README](https://github.com/moreflow-io/tracking#readme) for the first-touch and last-touch models.
+One `configureAcquisitionTracking({ persistence, model, ttlDays })` call at startup (re-exported from `@moreflow/tracking`) applies to these captures and to the ones your own page makes, so a site that captures on every route change and enables `acquisitionTracking: true` here sends the same landing values without a wrapper. Pass `trackingCapture: { model: 'last-touch', persistence: 'local' }` to override capture options, or `trackingCapture: () => myTrackingData` to supply values at submit time. Both forms run only with consent; without it only a `location` in the options is read. The form's `storage` option is used only for the idempotency record. See the [`@moreflow/tracking` README](https://github.com/moreflow-io/tracking#readme) for the first-touch and last-touch models.
 
 ### Stored data
 
 | Key | Storage | Lifetime | Purpose |
 | --- | --- | --- | --- |
 | `moreflow:idempotency:<formId>` | `sessionStorage` | Until the submission succeeds or the tab is closed | The pending attempt's idempotency key, payload hash, and request body, so a retry or reload replays the same submission instead of creating a duplicate. It contains the submitted form data. |
-| `moreflow:acquisition:v1` | `sessionStorage` (`localStorage` with `persistence: 'local'`) | Until the tab is closed (or `ttlDays`, with `localStorage`) | Acquisition values captured with `acquisitionTracking` enabled (see above). Not written otherwise. |
+| `moreflow:acquisition:v1` | `localStorage` (`sessionStorage` with `persistence: 'session'`) | Each touch for 90 days (`ttlDays`), until `clearAcquisitionTracking()`, or until the visitor clears site data | Acquisition values captured with `acquisitionTracking` consent (see above). Not written without consent. |
 
-When `sessionStorage` is blocked, both live in memory for the page instead. Pass `storage` to use your own `StorageLike`. The package sets no cookies.
+When browser storage is blocked, both live in memory for the page instead. Pass `storage` to use your own `StorageLike`. The package sets no cookies.
 
 A privacy/consent checkbox that exists as a form component (`privacy_policy`) is ordinary form data and belongs in `input.data` under its component id. `tracking_consent` and `marketing_consent` checkboxes work the same way: a checked box submits `true` under its component id, and an unchecked one submits `false`. Consent context that is _not_ a form field belongs in `input.consent` (for example ad and analytics cookie consent); it grants no marketing or tracking consent to the client, and changing it rotates the idempotency key like any other business-payload change. Use the form's `marketing_consent` field for a marketing opt-in.
 
@@ -934,7 +940,7 @@ Every helper throws `MoreflowFormError`. Its `FormErrorCode` includes `VALIDATIO
 
 A `VALIDATION_ERROR` submission lists missing required fields in `details.missingFieldIds`; `missingFieldIdsFromError(error)` reads them.
 
-`formErrorMessage(error, { language, formality, messages })` returns visitor-facing copy for the error's code in German ("Sie" by default, "du" with `formality: 'informal'`) or English, never the server's English developer message: every `FormErrorCode` has copy, `messages.errors` overrides it, and unknown codes fall back to a rate-limit, connection or generic text (or your `fallback`). Called with a string or nothing as the second argument, it keeps returning the raw server text, as before:
+`formErrorMessage(error, { language, formality, messages })` returns visitor-facing copy for the error's code in German ("du" by default, "Sie" with `formality: 'formal'`) or English, never the server's English developer message: every `FormErrorCode` has copy, `messages.errors` overrides it, and unknown codes fall back to a rate-limit, connection or generic text (or your `fallback`). Called with a string or nothing as the second argument, it keeps returning the raw server text, as before:
 
 ```ts
 import {
@@ -1028,7 +1034,11 @@ if (phoneVerificationRequired(definition)) {
 }
 ```
 
-The helpers call the public `PUT`/`POST /v1/forms/{formId}/phone-verification` endpoints (no token needed; the endpoints are rate limited). `baseUrl` defaults to `https://api.moreflow.io` as in `submitWithRetry`, and `token`, `headers`, `fetchImpl`, `signal`, and `defaultCountry` work the same way. Both helpers normalize the input to E.164 first and reject invalid numbers locally as `MoreflowFormError` with code `INVALID_PHONE_NUMBER`, without contacting the server.
+The helpers call the public `PUT`/`POST /v1/forms/{formId}/phone-verification` endpoints. Sending an SMS (`PUT`) follows the independently gated `form_phone_verification` bot policy; checking the issued OTP (`POST`) remains exempt. The helpers make no extra request while operation enforcement is off. After the first challenge refusal, the page remembers enforcement and the browser solves a fresh API-hosted frame before each send, including one retry after expired or rejected proof. Ambiguous SMS/provider/network failures are never replayed automatically.
+
+This phone-send proof is independent of the form's account-managed `public_form` submission widget: its off/flag/require behavior, token and hostname configuration stay unchanged. Customer pages must allow the Moreflow API origin in CSP `frame-src`. The frame runs on the owned API hostname, so customer hostnames do not enter the global operation allowlist. `challengeBaseUrl` overrides the frame origin for a configured API deployment; `challengeTitle` supplies an accessible iframe title. `createFormsClient`, `createFormSession` and `sendPhoneVerification` accept these options. For a headless/custom host, supply `getChallengeToken: async ({ operationId, action, signal }) => freshToken`; the action comes from runtime discovery and every invocation must produce a new token. Never return the submission widget's cached token.
+
+The endpoints remain rate limited. `baseUrl` defaults to `https://api.moreflow.io` as in `submitWithRetry`, and `token`, `headers`, `fetchImpl`, `signal`, and `defaultCountry` work the same way. Both helpers normalize the input to E.164 first and reject invalid numbers locally as `MoreflowFormError` with code `INVALID_PHONE_NUMBER`, without contacting the server.
 
 Failures are `MoreflowFormError` with the server's navigational code: `INVALID_VERIFICATION_CODE` means let the visitor retype the code; `VERIFICATION_PROOF_EXPIRED` and `VERIFICATION_PROOF_REPLAYED` mean start a new challenge with `sendPhoneVerification`; a 429 sets `retryable` with the usual `Retry-After` semantics. Neither helper retries on its own — every send is a real SMS — so offer an explicit "resend code" action instead of resending automatically. A challenge expires after roughly ten minutes and can be used once.
 

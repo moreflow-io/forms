@@ -475,7 +475,9 @@ describe('getPublicForm', () => {
 
     expect(definition.formId).toBe('form-1');
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.example.test/v1/forms/form-1');
+    // The render carries the page's visitor key (form experiments, docs/website-analytics.md §7.3) when a window exists.
+    const rendered = new URL(url);
+    expect(`${rendered.origin}${rendered.pathname}`).toBe('https://api.example.test/v1/forms/form-1');
     expect(init.method).toBe('GET');
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer mfo_token');
   });
@@ -536,7 +538,7 @@ describe('server company name, language and typed settings', () => {
       settings: {
         submitButtonText: 'Jetzt anfragen',
         continueButtonText: 7,
-        thank_you_page_url: ' https://example.test/danke ',
+        thankYouPageUrl: ' https://example.test/danke ',
         primaryColor: '#123456'
       },
       pages: [
@@ -559,7 +561,6 @@ describe('server company name, language and typed settings', () => {
     expect(definition.language).toBe('en');
     expect(definition.settings).toEqual({
       submitButtonText: 'Jetzt anfragen',
-      thank_you_page_url: ' https://example.test/danke ',
       thankYouPageUrl: 'https://example.test/danke',
       primaryColor: '#123456'
     });

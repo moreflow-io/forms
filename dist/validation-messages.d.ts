@@ -1,8 +1,8 @@
 import type { FormCopyOptions } from './messages';
 import type { FormValidationIssue } from './validation';
 /**
- * `language` defaults to `'de'`, like `resolveFormMessage`; `formality`
- * switches German to "du"; `messages.validation` replaces the text per code.
+ * `language` defaults to `'de'`, like `resolveFormMessage`; German uses "du"
+ * unless `formality` is `'formal'` ("Sie"); `messages.validation` replaces the text per code.
  */
 export type ValidationMessageOptions = FormCopyOptions;
 /**

@@ -19,7 +19,7 @@ describe('normalizePhoneNumber', () => {
   });
 
   it('drops a calling code typed twice when the rest is a German mobile number', () => {
-    for (const raw of ['+49 49 152 21322502', '+494915221322502', '00494915221322502']) {
+    for (const raw of ['+49 49 152 21322502', '+494915221322502', '00494915221322502', '494915221322502']) {
       expect(normalizePhoneNumber(raw)).toEqual({ status: 'valid', e164: '+4915221322502' });
     }
     expect(normalizePhoneNumber('+49491742618237')).toEqual({

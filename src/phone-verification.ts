@@ -8,10 +8,17 @@ import {
   validationErrorInit
 } from './internal/errors';
 import { readResponseBody, resolveBaseUrl, resolveFetch } from './internal/http';
+import {
+  createOperationChallengeSession,
+  type OperationChallengeOptions
+} from './internal/operation-challenge';
 import { isRecord } from './internal/values';
 import { normalizePhoneNumber } from './phone';
 
-export interface PhoneVerificationRequestOptions {
+/** Proof comes from the API-hosted frame; form submission widgets remain independent. */
+export type PhoneVerificationBotChallengeOptions = Omit<OperationChallengeOptions, 'baseUrl'>;
+
+export interface PhoneVerificationRequestOptions extends PhoneVerificationBotChallengeOptions {
   formId: string;
   /** Raw phone input; normalized to E.164 with `defaultCountry` before sending. */
   phoneNumber: string;
@@ -80,30 +87,58 @@ async function phoneVerificationRequest(
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
   const url = `${resolveBaseUrl({ baseUrl: options.baseUrl })}/v1/forms/${encodeURIComponent(options.formId)}/phone-verification`;
 
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      method,
-      headers,
-      body: JSON.stringify(body),
-      ...(options.signal ? { signal: options.signal } : {})
-    });
-  } catch (error) {
-    if (options.signal?.aborted) {
-      throw new MoreflowFormError(abortedErrorInit(`${failureMessage}: aborted.`, options.signal));
+  const send = async (challengeToken?: string) => {
+    const attemptHeaders = new Headers(headers);
+    // A caller-supplied proof must never become a stale retry token.
+    attemptHeaders.delete('x-captcha-response');
+    if (challengeToken) attemptHeaders.set('x-captcha-response', challengeToken);
+    let response: Response;
+    try {
+      response = await fetchImpl(url, {
+        method,
+        headers: attemptHeaders,
+        body: JSON.stringify(body),
+        ...(options.signal ? { signal: options.signal } : {})
+      });
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw new MoreflowFormError(
+          abortedErrorInit(`${failureMessage}: aborted.`, options.signal)
+        );
+      }
+      throw new MoreflowFormError(
+        networkErrorInit(`${failureMessage} before a response was received.`, error)
+      );
     }
-    throw new MoreflowFormError(
-      networkErrorInit(`${failureMessage} before a response was received.`, error)
-    );
-  }
 
-  const responseBody = await readResponseBody(response);
-  if (!response.ok) {
-    throw new MoreflowFormError(
-      operationErrorInit({ responseBody, status: response.status, fallbackMessage: failureMessage })
-    );
-  }
-  return responseBody;
+    const responseBody = await readResponseBody(response);
+    if (!response.ok) {
+      throw new MoreflowFormError(
+        operationErrorInit({
+          responseBody,
+          status: response.status,
+          fallbackMessage: failureMessage
+        })
+      );
+    }
+    return responseBody;
+  };
+  if (method === 'POST') return send();
+  const challenge = createOperationChallengeSession(options, {
+    fetchImpl,
+    aborted: (signal) =>
+      new MoreflowFormError(abortedErrorInit(`${failureMessage}: aborted.`, signal)),
+    unavailable: () =>
+      new MoreflowFormError({
+        code: 'TURNSTILE_UNAVAILABLE',
+        message: 'Bot verification is temporarily unavailable.',
+        retryable: true
+      })
+  });
+  return challenge.run('PUT /v1/forms/$formId/phone-verification', {
+    signal: options.signal,
+    send
+  });
 }
 
 /**
@@ -111,8 +146,8 @@ async function phoneVerificationRequest(
  * (`PUT /v1/forms/{formId}/phone-verification`). The server texts a code to
  * the number and returns a challenge id for {@link checkPhoneVerification}.
  *
- * Each call sends a real SMS, so the helper never retries by itself; inspect
- * `MoreflowFormError.retryable` before resending.
+ * The helper retries only a definitive bot-challenge refusal, once, with fresh
+ * proof. It never retries ambiguous SMS/provider/network errors automatically.
  */
 export async function sendPhoneVerification(
   options: PhoneVerificationRequestOptions

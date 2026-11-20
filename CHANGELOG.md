@@ -4,6 +4,19 @@ All notable changes to `@moreflow/forms` are documented in this file.
 
 ## Unreleased
 
+## 0.10.0
+
+- Submissions send their key only as the `Idempotency-Key` header (no longer also as `idempotencyKey` in the body), as the v1 re-freeze of the moreflow API requires. Embeds pinned to an older version keep working: the API still accepts the body copy for now.
+- `definition.settings` carries the render settings in lowerCamelCase only, as `GET /v1/forms/{formId}` now returns them (`metaPixelId`, `metaEventFormStarted`, `metaEventFormSubmitted`, `tiktokPixelId`, `tiktokEventFormSubmitted`, `openAiPixelId`); the legacy `thank_you_page_url` key is no longer returned or read, `thankYouPageUrl` is the one redirect setting.
+
+- **Breaking — requires the next minor release:** German visitor copy addresses the visitor with "du" by default. `validationMessage`, `formErrorMessage`, `createFormSession`, `useMoreflowForm` and `createFormsClient` return the "du" texts when `formality` is unset; pass `formality: 'formal'` to keep the previous "Sie" texts. `formality: 'informal'` behaves as before.
+- Without tracking consent, a submission also sends OpenAI Ads' (ChatGPT Ads) click reference `oppref` from the current page URL, like the other ad click ids.
+- Phone numbers: bare digits with the German calling code typed twice ("494915221322502") are repaired like "+49 49 152…", instead of becoming a valid-looking Leer (0491) number.
+- Each successful submission records one anonymous conversion through the analytics tracker's `track`, when the tracker is present: `form_submitted` (`form_id`) for forms, `booking_created` (`meeting_type_id`) for bookings, `chatbot_lead_created` (`chatbot_id`) for the send that creates the lead. Only the surface id is sent: no contact id, email or text, with or without consent.
+- With tracking consent, the capture follows `@moreflow/tracking`'s next minor defaults once this package depends on it: the first and last touch are kept in `localStorage` for 90 days instead of `sessionStorage` for the tab, and the last touch (the latest campaign) is sent, so a submission in a later visit still carries the ad click id of an earlier visit. Restore the previous behaviour with `configureAcquisitionTracking({ persistence: 'session', model: 'first-touch', ttlDays: 0 })`.
+- **Breaking — requires the next minor release:** without tracking consent, `submitWithRetry`, `createFormSession`, `useMoreflowForm` and `createFormsClient` now send the UTM parameters, Google campaign parameters (`gad_campaignid`, `gad_source`) and ad click ids (`gclid`, `gbraid`, `wbraid`, `fbclid`, `ttclid`) of the current page URL as `tracking`, instead of nothing. This path reads no cookies, referrer or user agent and writes no browser storage. `acquisitionTracking` keeps its type and stays the consent switch: with `true` (or a function returning `true`) the full capture runs as before and now also reads TikTok's `_ttp` cookie. `input.tracking` still replaces any capture.
+- Phone verification sends solve the declared operation challenge through an API-hosted frame when enforcement is enabled, with fresh action-bound proof on every send/resend and one retry after a definitive challenge refusal. Disabled calls add zero requests. Sessions and clients share enforcement discovery per page; headless integrations can supply `getChallengeToken`, `challengeBaseUrl` and `challengeTitle`. OTP checks and the form-owned submission widget's off/flag/require policy remain unchanged.
+
 ## 0.9.2
 
 - Phone numbers: a number that carries the German calling code twice ("+49 49 152…") is repaired, and bare digits that begin with the form country's own calling code ("49 152 21322502") are read as international instead of national. Other bare digits ("170 1234567") keep the national reading.

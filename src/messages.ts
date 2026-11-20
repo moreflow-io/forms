@@ -198,7 +198,7 @@ export function formMessageId(key: string): string {
     .toLowerCase();
 }
 
-/** How German copy addresses the visitor: `'formal'` ("Sie", the default) or `'informal'` ("du"). */
+/** How German copy addresses the visitor: `'informal'` ("du", the default) or `'formal'` ("Sie"). */
 export type FormFormality = 'formal' | 'informal';
 
 /**
@@ -222,7 +222,7 @@ export interface FormMessageOverrides {
 export interface FormCopyOptions {
   /** Defaults to `'de'`; pass the language you render the form in. */
   language?: FormMessageLanguage | undefined;
-  /** German only; defaults to `'formal'` ("Sie"). */
+  /** German only; defaults to `'informal'` ("du"). */
   formality?: FormFormality | undefined;
   messages?: FormMessageOverrides | undefined;
 }

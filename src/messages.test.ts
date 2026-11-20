@@ -115,14 +115,18 @@ describe('copy overrides and formality', () => {
     expect(resolveFormMessage('Literal text', { messages })).toBe('Literal text');
   });
 
-  it('switches German validation copy to du and honours messages.validation', () => {
-    expect(validationMessage({ code: 'INVALID_EMAIL' }, { formality: 'informal' })).toBe(
-      'Bitte gib eine gültige E-Mail-Adresse ein.'
-    );
+  it('uses German du by default, Sie when formal, and honours messages.validation', () => {
+    expect(validationMessage({ code: 'INVALID_EMAIL' })).toBe('Bitte gib eine gültige E-Mail-Adresse ein.');
     expect(validationMessage({ code: 'CONSENT_REQUIRED' }, { formality: 'informal' })).toBe(
       'Deine Einwilligung ist erforderlich.'
     );
-    expect(validationMessage({ code: 'REQUIRED' }, { language: 'en', formality: 'informal' })).toBe(
+    expect(validationMessage({ code: 'CONSENT_REQUIRED' }, { formality: 'formal' })).toBe(
+      'Ihre Einwilligung ist erforderlich.'
+    );
+    for (const code of ['REQUIRED', 'INVALID_EMAIL', 'INVALID_PHONE_NUMBER', 'CONSENT_REQUIRED', 'INCOMPLETE_ADDRESS'] as const) {
+      expect(validationMessage({ code }), code).not.toMatch(/\b(?:Sie|Ihr\w*|Ihnen)\b/u);
+    }
+    expect(validationMessage({ code: 'REQUIRED' }, { language: 'en', formality: 'formal' })).toBe(
       'This field is required.'
     );
     expect(

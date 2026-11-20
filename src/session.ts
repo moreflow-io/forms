@@ -257,6 +257,8 @@ export function createFormSession(
   }
 
   async function performSubmit(): Promise<boolean> {
+    // Each request owns its signal: reset() or dispose() aborts this one, never a later request's.
+    const signal = controller.signal;
     update({ status: 'submitting', error: null });
     const token = snapshot.turnstile.token;
     try {
@@ -278,8 +280,9 @@ export function createFormSession(
         fetchImpl: options.fetchImpl,
         storage: options.storage,
         maxAttempts: options.maxAttempts,
-        signal: controller.signal
+        signal
       });
+      if (signal.aborted) return false;
       update({
         status: 'submitted',
         result: {
@@ -292,7 +295,7 @@ export function createFormSession(
       });
       return true;
     } catch (error) {
-      if (controller.signal.aborted) return false;
+      if (signal.aborted) return false;
       const code = errorCode(error);
       if (code === 'ANTI_SPAM_INVALID' || code === 'ANTI_SPAM_REQUIRED') resetTurnstileToken();
       const missing = missingFieldIdsFromError(error).flatMap((id) => {
@@ -337,9 +340,13 @@ export function createFormSession(
       return false;
     }
     const pendingSubmit = snapshot.status === 'verifying';
+    const signal = controller.signal;
     update({ phoneVerification: verification({ status: 'sending', error: null }) });
     try {
-      challenge = await sendPhoneVerification({
+      const sent = await sendPhoneVerification({
+        challengeBaseUrl: options.challengeBaseUrl,
+        challengeTitle: options.challengeTitle,
+        getChallengeToken: options.getChallengeToken,
         formId: definition.formId,
         phoneNumber,
         defaultCountry: options.defaultCountry,
@@ -347,20 +354,22 @@ export function createFormSession(
         token: options.token,
         headers: options.headers,
         fetchImpl: options.fetchImpl,
-        signal: controller.signal
+        signal
       });
+      if (signal.aborted) return false;
+      challenge = sent;
       update({
         phoneVerification: verification({
           status: 'code_sent',
-          phoneNumber: challenge.phoneNumber,
-          expiresAt: challenge.expiresAt,
+          phoneNumber: sent.phoneNumber,
+          expiresAt: sent.expiresAt,
           code: '',
           error: null
         })
       });
       return true;
     } catch (error) {
-      if (controller.signal.aborted) return false;
+      if (signal.aborted) return false;
       const failure = sessionError(error);
       if (challenge) {
         // A resend failed: keep the code panel open and show the error there.
@@ -382,6 +391,7 @@ export function createFormSession(
       return false;
     }
     const enteredCode = code ?? state.code;
+    const signal = controller.signal;
     update({ phoneVerification: verification({ status: 'checking', code: enteredCode, error: null }) });
     try {
       const result = await checkPhoneVerification({
@@ -393,15 +403,16 @@ export function createFormSession(
         token: options.token,
         headers: options.headers,
         fetchImpl: options.fetchImpl,
-        signal: controller.signal
+        signal
       });
+      if (signal.aborted) return false;
       verifiedPhone = result.phoneNumber;
       challenge = undefined;
       update({
         phoneVerification: verification({ status: 'verified', phoneNumber: result.phoneNumber, code: '' })
       });
     } catch (error) {
-      if (controller.signal.aborted) return false;
+      if (signal.aborted) return false;
       update({ phoneVerification: verification({ status: 'code_sent', error: sessionError(error) }) });
       return false;
     }

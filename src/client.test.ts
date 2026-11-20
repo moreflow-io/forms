@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFormsClient, createMemoryStorage } from './index';
 
 const definition = {
@@ -7,6 +7,16 @@ const definition = {
 };
 
 describe('createFormsClient', () => {
+  // A definition read adds the page's experiment visitor key only in a browser,
+  // so give these tests a page; the package config runs in the node environment.
+  beforeEach(() => {
+    vi.stubGlobal('window', { location: new URL('https://customer.test/contact') });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('uses reusable defaults for definition loads, sessions, submission, and verification', async () => {
     const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     const client = createFormsClient({
@@ -33,8 +43,9 @@ describe('createFormsClient', () => {
     expect(calls[2]?.body).not.toHaveProperty('tracking');
     await client.sendPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567' });
     await client.checkPhoneVerification({ formId: 'form-1', phoneNumber: '+491701234567', challengeId: 'challenge', code: '123456' });
+    // A definition read carries the page's experiment visitor key (moreflow-bfdek).
     expect(calls.map((call) => call.url)).toEqual([
-      '/v1/forms/form-1', '/v1/forms/form-1/submissions', '/v1/forms/form-2/submissions',
+      expect.stringMatching(/^\/v1\/forms\/form-1\?visitorKey=[\w-]+$/), '/v1/forms/form-1/submissions', '/v1/forms/form-2/submissions',
       '/v1/forms/form-1/phone-verification', '/v1/forms/form-1/phone-verification'
     ]);
     session.dispose();
@@ -46,7 +57,10 @@ describe('createFormsClient', () => {
     const client = createFormsClient({ baseUrl: 'https://default.test', fetchImpl: defaultFetch });
     await client.getPublicForm({ formId: 'form-1', baseUrl: 'https://override.test/', fetchImpl: overrideFetch });
     expect(defaultFetch).not.toHaveBeenCalled();
-    expect(overrideFetch).toHaveBeenCalledWith('https://override.test/v1/forms/form-1', expect.anything());
+    expect(overrideFetch).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/override\.test\/v1\/forms\/form-1\?visitorKey=[\w-]+$/),
+      expect.anything()
+    );
   });
 
   it('gates callbacks on consent and lets explicit input tracking bypass capture', async () => {

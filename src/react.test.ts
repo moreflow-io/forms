@@ -36,7 +36,11 @@ describe('useMoreflowForm', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     if (result.current.status !== 'ready') throw new Error('Expected a ready form.');
     expect(result.current.state).toMatchObject({ language: 'de', companyName: 'MPU West' });
-    expect(fetchImpl).toHaveBeenCalledWith('/v1/forms/form-1', expect.objectContaining({ method: 'GET' }));
+    // In a browser the page view's random visitor key rides along for form experiments.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/v1\/forms\/form-1\?visitorKey=[^&]+$/),
+      expect.objectContaining({ method: 'GET' })
+    );
 
     const session = result.current.session;
     act(() => session.setValue('email', 'erika@example.test'));

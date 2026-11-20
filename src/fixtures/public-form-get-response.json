@@ -1,0 +1,413 @@
+{
+  "$comment": "GET /v1/forms/{formId}: one forms.public.get output before (omitted) and after (projected) the public output projection, moreflow-o5t0ga.5. backend/api/routes/forms/public/[formId]/public-output-projection.test.ts proves projected is the real projection of omitted.",
+  "omitted": {
+    "id": "80000000-0000-4000-8000-000000000001",
+    "accountId": "3f8b2c1d-6a4e-4b9f-9d2e-7c5a1b8e4f60",
+    "name": "Contact request",
+    "status": "published",
+    "honeypotField": "website",
+    "spamProtection": {
+      "turnstile": {
+        "siteKey": "",
+        "mode": "off"
+      }
+    },
+    "companyName": "Northwind GmbH",
+    "language": "de",
+    "version": {
+      "id": "81000000-0000-4000-8000-000000000001",
+      "version": 1,
+      "publishedAt": "2026-10-01T09:00:00.000Z",
+      "settings": {
+        "submitButtonText": "Send request",
+        "primaryColor": "#1f6feb",
+        "privacyMode": true
+      },
+      "pages": [
+        {
+          "id": "page_contact",
+          "type": "regular",
+          "title": "Contact",
+          "components": [
+            {
+              "id": "heading_1",
+              "type": "heading",
+              "label": "Get in touch"
+            },
+            {
+              "id": "image_1",
+              "type": "image",
+              "src": "https://example.test/a.png"
+            },
+            {
+              "id": "email_field",
+              "type": "email",
+              "label": "Email",
+              "required": true
+            },
+            {
+              "id": "name_field",
+              "type": "text",
+              "label": "Name"
+            },
+            {
+              "id": "phone_field",
+              "type": "phone_number",
+              "label": "Phone"
+            },
+            {
+              "id": "topic",
+              "type": "dropdown",
+              "label": "Topic",
+              "options": [
+                "MPU",
+                "Other"
+              ]
+            },
+            {
+              "id": "choice",
+              "type": "multiple_choice",
+              "label": "Choice",
+              "options": [
+                {
+                  "id": "a",
+                  "value": "a",
+                  "label": "A"
+                },
+                {
+                  "id": "b",
+                  "value": "b",
+                  "label": "B"
+                }
+              ]
+            },
+            {
+              "id": "privacy",
+              "type": "privacy_policy",
+              "required": true
+            },
+            {
+              "id": "tracking",
+              "type": "tracking_consent"
+            },
+            {
+              "id": "marketing",
+              "type": "marketing_consent"
+            }
+          ]
+        },
+        {
+          "id": "page_thank_you",
+          "type": "thank_you",
+          "components": [],
+          "content": [
+            {
+              "id": "thanks_heading",
+              "type": "heading",
+              "props": {
+                "content": "Thank you!"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "experiment": null
+  },
+  "projected": {
+    "id": "80000000-0000-4000-8000-000000000001",
+    "accountId": "3f8b2c1d-6a4e-4b9f-9d2e-7c5a1b8e4f60",
+    "name": "Contact request",
+    "status": "published",
+    "honeypotField": "website",
+    "spamProtection": {
+      "turnstile": {
+        "siteKey": "",
+        "mode": "off"
+      }
+    },
+    "companyName": "Northwind GmbH",
+    "language": "de",
+    "version": {
+      "id": "81000000-0000-4000-8000-000000000001",
+      "version": 1,
+      "publishedAt": "2026-10-01T09:00:00.000Z",
+      "settings": {
+        "submitButtonText": "Send request",
+        "primaryColor": "#1f6feb",
+        "privacyMode": true,
+        "continueButtonText": null,
+        "submitButtonWidth": null,
+        "submitButtonUppercase": null,
+        "submitButtonBold": null,
+        "borderRadius": null,
+        "fontSize": null,
+        "theme": null,
+        "themeMode": null,
+        "thankYouPageUrl": null,
+        "metaPixelId": null,
+        "metaEventFormStarted": null,
+        "metaEventFormSubmitted": null,
+        "tiktokPixelId": null,
+        "tiktokEventFormSubmitted": null,
+        "openAiPixelId": null
+      },
+      "pages": [
+        {
+          "id": "page_contact",
+          "type": "regular",
+          "title": "Contact",
+          "components": [
+            {
+              "id": "heading_1",
+              "type": "heading",
+              "label": "Get in touch",
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "image_1",
+              "type": "image",
+              "src": "https://example.test/a.png",
+              "label": null,
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "email_field",
+              "type": "email",
+              "label": "Email",
+              "required": true,
+              "placeholder": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "name_field",
+              "type": "text",
+              "label": "Name",
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "phone_field",
+              "type": "phone_number",
+              "label": "Phone",
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "topic",
+              "type": "dropdown",
+              "label": "Topic",
+              "options": [
+                "MPU",
+                "Other"
+              ],
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "choice",
+              "type": "multiple_choice",
+              "label": "Choice",
+              "options": [
+                {
+                  "id": "a",
+                  "value": "a",
+                  "label": "A"
+                },
+                {
+                  "id": "b",
+                  "value": "b",
+                  "label": "B"
+                }
+              ],
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "privacy",
+              "type": "privacy_policy",
+              "required": true,
+              "label": null,
+              "placeholder": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "tracking",
+              "type": "tracking_consent",
+              "label": null,
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            },
+            {
+              "id": "marketing",
+              "type": "marketing_consent",
+              "label": null,
+              "placeholder": null,
+              "required": null,
+              "showLabel": null,
+              "showPlaceholder": null,
+              "size": null,
+              "options": null,
+              "multipleSelect": null,
+              "verifyPhone": null,
+              "checkboxText": null,
+              "content": null,
+              "src": null,
+              "alt": null,
+              "storageObjectId": null,
+              "storageRef": null,
+              "fileName": null,
+              "contentType": null
+            }
+          ],
+          "description": null,
+          "order": null,
+          "content": null
+        },
+        {
+          "id": "page_thank_you",
+          "type": "thank_you",
+          "components": [],
+          "content": [
+            {
+              "id": "thanks_heading",
+              "type": "heading",
+              "props": {
+                "content": "Thank you!"
+              }
+            }
+          ],
+          "title": null,
+          "description": null,
+          "order": null
+        }
+      ]
+    },
+    "experiment": null,
+    "analyticsSiteKey": null,
+    "analyticsTrackerUrl": null
+  }
+}

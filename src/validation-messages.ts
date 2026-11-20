@@ -2,16 +2,16 @@ import type { FormCopyOptions } from './messages';
 import type { FormValidationCode, FormValidationIssue } from './validation';
 
 const validationMessages: Readonly<
-  Record<'de' | 'deInformal' | 'en', Readonly<Record<FormValidationCode, string>>>
+  Record<'de' | 'deFormal' | 'en', Readonly<Record<FormValidationCode, string>>>
 > = {
-  de: {
+  deFormal: {
     REQUIRED: 'Dieses Feld ist erforderlich.',
     INVALID_EMAIL: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
     INVALID_PHONE_NUMBER: 'Bitte geben Sie eine gültige Telefonnummer ein.',
     CONSENT_REQUIRED: 'Ihre Einwilligung ist erforderlich.',
     INCOMPLETE_ADDRESS: 'Bitte füllen Sie alle erforderlichen Adressfelder aus.'
   },
-  deInformal: {
+  de: {
     REQUIRED: 'Dieses Feld ist erforderlich.',
     INVALID_EMAIL: 'Bitte gib eine gültige E-Mail-Adresse ein.',
     INVALID_PHONE_NUMBER: 'Bitte gib eine gültige Telefonnummer ein.',
@@ -28,8 +28,8 @@ const validationMessages: Readonly<
 };
 
 /**
- * `language` defaults to `'de'`, like `resolveFormMessage`; `formality`
- * switches German to "du"; `messages.validation` replaces the text per code.
+ * `language` defaults to `'de'`, like `resolveFormMessage`; German uses "du"
+ * unless `formality` is `'formal'` ("Sie"); `messages.validation` replaces the text per code.
  */
 export type ValidationMessageOptions = FormCopyOptions;
 
@@ -45,6 +45,6 @@ export function validationMessage(
   if (override) return override;
   const language = options.language ?? 'de';
   const catalog =
-    language === 'en' ? 'en' : options.formality === 'informal' ? 'deInformal' : 'de';
+    language === 'en' ? 'en' : options.formality === 'formal' ? 'deFormal' : 'de';
   return validationMessages[catalog][issue.code];
 }

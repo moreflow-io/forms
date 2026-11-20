@@ -16,6 +16,11 @@ const everyCode: Record<FormErrorCode, true> = {
   VERIFICATION_PROOF_REPLAYED: true,
   INVALID_FORM_DEFINITION: true,
   TURNSTILE_UNAVAILABLE: true,
+  TURNSTILE_TOKEN_REQUIRED: true,
+  TURNSTILE_TOKEN_INVALID: true,
+  TURNSTILE_ACTION_MISMATCH: true,
+  TURNSTILE_HOSTNAME_NOT_ALLOWED: true,
+  TURNSTILE_VERIFICATION_UNAVAILABLE: true,
   FORM_NOT_FOUND: true,
   FORM_RETIRED: true,
   FORM_UNPUBLISHED: true,
@@ -53,18 +58,23 @@ describe('localized formErrorMessage', () => {
     }
   });
 
-  it('addresses German visitors with Sie by default and du when informal', () => {
+  it('addresses German visitors with du by default and Sie when formal', () => {
     const error = formError('VERIFICATION_PROOF_EXPIRED');
 
     expect(formErrorMessage(error, { language: 'de' })).toBe(
-      'Der Code ist abgelaufen. Bitte fordern Sie einen neuen Code an.'
-    );
-    expect(formErrorMessage(error, { language: 'de', formality: 'informal' })).toBe(
       'Der Code ist abgelaufen. Bitte fordere einen neuen Code an.'
     );
-    expect(formErrorMessage(error, { language: 'en', formality: 'informal' })).toBe(
+    expect(formErrorMessage(error, { language: 'de', formality: 'formal' })).toBe(
+      'Der Code ist abgelaufen. Bitte fordern Sie einen neuen Code an.'
+    );
+    expect(formErrorMessage(error, { language: 'en', formality: 'formal' })).toBe(
       'The code has expired. Please request a new code.'
     );
+    for (const code of Object.keys(everyCode)) {
+      expect(formErrorMessage(formError(code), { language: 'de' }), code).not.toMatch(
+        /\b(?:Sie|Ihr\w*|Ihnen)\b/u
+      );
+    }
   });
 
   it('prefers messages.errors overrides, then rate-limit and connection copy for unknown codes', () => {
@@ -86,7 +96,7 @@ describe('localized formErrorMessage', () => {
       'Oops.'
     );
     expect(formErrorMessage(new Error('boom'), { language: 'de' })).toBe(
-      'Die Anfrage ist fehlgeschlagen. Bitte versuchen Sie es erneut.'
+      'Die Anfrage ist fehlgeschlagen. Bitte versuche es erneut.'
     );
   });
 
